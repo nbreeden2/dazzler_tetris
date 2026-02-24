@@ -3,7 +3,7 @@
 ; TETMOVE.MAC - Movement, collision, locking, lines, score
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.00
+; Version: 1.01
 ;
 ; Assembler: Microsoft M80
 ;--------------------------------------------------------------
@@ -180,7 +180,7 @@ MOVELFT:
         MOV     D,A
         POP     PSW             ; A = type
         CALL    COLLIDE
-        JNZ     MLBLK
+        JNZ     BLKRET
         ; Success: update col
         LDA     PCCOL
         DCR     A
@@ -188,11 +188,7 @@ MOVELFT:
         CALL    DRAWPC
         XRA     A
         RET
-MLBLK:
-        CALL    DRAWPC          ; Redraw old pos
-        MVI     A,1
-        ORA     A
-        RET
+        ; (MLBLK removed: uses shared BLKRET)
 
 ;--------------------------------------------------------------
 ; MOVERGT - Move piece right
@@ -213,18 +209,14 @@ MOVERGT:
         MOV     D,A
         POP     PSW
         CALL    COLLIDE
-        JNZ     MRBLK
+        JNZ     BLKRET
         LDA     PCCOL
         INR     A
         STA     PCCOL
         CALL    DRAWPC
         XRA     A
         RET
-MRBLK:
-        CALL    DRAWPC
-        MVI     A,1
-        ORA     A
-        RET
+        ; (MRBLK removed: uses shared BLKRET)
 
 ;--------------------------------------------------------------
 ; MOVEDN - Move piece down one row
@@ -245,18 +237,14 @@ MOVEDN:
         MOV     D,A
         POP     PSW
         CALL    COLLIDE
-        JNZ     MDBLK
+        JNZ     BLKRET
         LDA     PCROW
         INR     A
         STA     PCROW
         CALL    DRAWPC
         XRA     A
         RET
-MDBLK:
-        CALL    DRAWPC
-        MVI     A,1
-        ORA     A
-        RET
+        ; (MDBLK removed: uses shared BLKRET)
 
 ;--------------------------------------------------------------
 ; ROTATE - Rotate piece clockwise
@@ -294,7 +282,7 @@ ROT1:
         MOV     D,A
         POP     PSW             ; A = type
         CALL    COLLIDE
-        JNZ     ROTBLK
+        JNZ     BLKRET
 
         ; Success: update rotation
         LDA     ROTNEW
@@ -303,10 +291,15 @@ ROT1:
         XRA     A
         RET
 
-ROTBLK:
-        CALL    DRAWPC
+;--------------------------------------------------------------
+; BLKRET - Shared blocked return for movement functions
+;
+; Redraws piece at current position and returns NZ.
+;--------------------------------------------------------------
+BLKRET:
+        CALL    DRAWPC          ; Redraw at old pos
         MVI     A,1
-        ORA     A
+        ORA     A               ; Set NZ flag
         RET
 
 ROTNEW: DB      0               ; Candidate rotation
@@ -391,12 +384,10 @@ LOCK1:
         ADD     B
         MOV     E,A
         MVI     D,0
-        PUSH    H
         LXI     H,BOARD
         DAD     D
         LDA     PCCLR
         MOV     M,A
-        POP     H
 
 LOCK2:
         POP     H

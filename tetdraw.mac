@@ -3,7 +3,7 @@
 ; TETDRAW.MAC - All Dazzler drawing operations for Tetris
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.00
+; Version: 1.01
 ; Handles playfield border, cell drawing, piece rendering,
 ; next-piece preview, board redraw, and level indicator.
 ;
@@ -160,11 +160,9 @@ DRAWCEL:
         ADI     2
         MOV     E,A             ; E = pixel_y + 2
 
-        ; Call DZLFRECT: B=x0 C=y0 D=x1 E=y1 A=color
+        ; Tail call DZLFRECT: B=x0 C=y0 D=x1 E=y1 A=color
         POP     PSW             ; Restore color
-        CALL    DZLFRECT
-
-        RET
+        JMP     DZLFRECT
 
 ;--------------------------------------------------------------
 ; DRAWPC - Draw the active piece on the playfield
@@ -368,32 +366,41 @@ ERSNXT:
         MVI     D,NXBOXR-1
         MVI     E,NXBOXB-1
         MVI     A,BLACK
-        CALL    DZLFRECT
-        RET
+        JMP     DZLFRECT
 
 ;--------------------------------------------------------------
 ; REDRAW - Redraw the entire playfield from BOARD array
 ;
-; Called after line clear. Draws all 200 cells.
+; Called after line clear. Clears playfield, then draws
+; only non-empty cells (skips ~150+ empty cells).
 ; Uses: All registers
 ;--------------------------------------------------------------
 REDRAW:
+        ; Clear entire playfield interior to black
+        MVI     B,PFORGX
+        MVI     C,PFORGY
+        MVI     D,PFORGX+PFCOLS*CELLSZ-1  ; 30
+        MVI     E,PFORGY+PFROWS*CELLSZ-1  ; 62
+        MVI     A,BLACK
+        CALL    DZLFRECT
+
+        ; Draw only non-empty cells from board
         LXI     H,BOARD         ; HL = board pointer
         MVI     C,0             ; C = current row
 REDR1:
         MVI     B,0             ; B = current column
 REDR2:
+        MOV     A,M             ; A = cell color
+        ORA     A               ; Empty cell?
+        JZ      REDR3           ; Skip (already black)
+
         PUSH    H
         PUSH    B
-
-        ; Get color from board
-        MOV     A,M             ; A = cell color (0=empty)
-
-        ; Draw cell at (B=col, C=row, A=color)
         CALL    DRAWCEL
-
         POP     B
         POP     H
+
+REDR3:
         INX     H               ; Next board cell
         INR     B               ; Next column
         MOV     A,B

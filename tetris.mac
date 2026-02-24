@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.00
+; Version: 1.01
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -356,7 +356,6 @@ SPAWN:
         CALL    DRWNXT
 
         ; Test collision at spawn position
-        LDA     PCTYPE
         LXI     B,0             ; B=rot=0
         LDA     PCCOL
         MOV     C,A             ; C = col
@@ -367,8 +366,7 @@ SPAWN:
         JNZ     SPNDIE          ; Collision = game over
 
         ; Draw the new piece
-        CALL    DRAWPC
-        RET
+        JMP     DRAWPC
 
 SPNDIE:
         MVI     A,1
@@ -581,7 +579,7 @@ PRTCH:
 ; Console message strings
 ;--------------------------------------------------------------
 MSGSTRT:
-        DB      'TETRIS for Cromemco Dazzler v1.00'
+        DB      'TETRIS for Cromemco Dazzler v1.01'
         DB      13,10,'$'
 
 MSGCTRL:
