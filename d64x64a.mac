@@ -1,0 +1,553 @@
+        TITLE   'Cromemco Dazzler 64x64 Graphics Library - Part 2'
+;-------------------------------------------------------------------
+; D64X64A.MAC - Cromemco Dazzler 64x64 Graphics Library - Part 2
+;
+; Part of the D64X64 3-module library.
+; See D64X64.MAC for full revision history and build instructions.
+;
+; Contains:
+;   DZLVLIN  - Draw vertical line
+;   DZLCIRC  - Draw circle outline
+;   PLOT8    - Plot 8 symmetric circle points (local helper)
+;   DZLFCIRC - Draw filled circle
+;-------------------------------------------------------------------
+
+;-------------------------------------------------------------------
+; Public and external declarations
+;-------------------------------------------------------------------
+        PUBLIC  DZLVLIN,DZLCIRC,DZLFCIRC
+        EXTRN   DZLPSI,DZLPSET,FILLH
+        EXTRN   FBBASE,VLCOLRAW,VLYSTOP
+        EXTRN   VLCOLB,VLMASK
+        EXTRN   CIRCXC,CIRCYC,CIRCR
+        EXTRN   CIRCX,CIRCY,CIRCD,CIRCC
+
+;-------------------------------------------------------------------
+; DZLVLIN - Draw vertical line
+;
+; Starting byte address computed once before the loop (same technique
+; as DZLPSI). Color nibble byte and mask precomputed from X parity.
+; HL advances by 16 (one row) per pixel. Quadrant boundary at Y=32
+; handled as a one-time +528 address correction between two segments.
+;
+; Entry:  B = X (column)
+;         C = Y1 (start Y)
+;         D = Y2 (end Y)
+;         A = Color
+; Exit:   A = 0 on success
+; Uses:   All registers
+;-------------------------------------------------------------------
+DZLVLIN:
+        STA     VLCOLRAW        ; Save color
+
+        ; if (X >= 64) return
+        MOV     A,B
+        CPI     64
+        JNC     VLRET0
+
+        ; Clip Y1 to [0,63]: values >= 128 treated as negative -> 0
+        MOV     A,C
+        CPI     128
+        JC      VL_Y1A
+        MVI     C,0
+VL_Y1A:
+        MOV     A,C
+        CPI     64
+        JC      VL_Y1B
+        MVI     C,63
+VL_Y1B:
+
+        ; Clip Y2 to [0,63]
+        MOV     A,D
+        CPI     128
+        JC      VL_Y2A
+        MVI     D,0
+VL_Y2A:
+        MOV     A,D
+        CPI     64
+        JC      VL_Y2B
+        MVI     D,63
+VL_Y2B:
+
+        ; Compare Y1 with Y2 to determine line type
+        MOV     A,C
+        CMP     D
+        JC      VLMULTI         ; Y1 < Y2: multi-pixel line
+        JZ      VLSINGLE        ; Y1 == Y2: single pixel
+        ; Y1 > Y2: nothing to draw
+
+VLRET0:
+        XRA     A
+        RET
+
+VLSINGLE:
+        ; Single pixel: coordinates pre-validated, use internal entry
+        LDA     VLCOLRAW
+        CALL    DZLPSI
+        XRA     A
+        RET
+
+VLMULTI:
+        ; B=X (0-63), C=Y1 (0-63), D=Y2 (0-63), Y1 < Y2
+        MOV     A,D
+        STA     VLYSTOP         ; Save Y2
+
+        ; Precompute color nibble byte and mask from X parity
+        LDA     VLCOLRAW        ; A = color (0-15)
+        ANI     0FH
+        MOV     E,A             ; E = color low nibble
+        MOV     A,B             ; Test X parity (bit 0)
+        ANI     01H
+        JNZ     VLPRE_ODD
+        MOV     A,E             ; Even X: pixel in bits 3:0
+        STA     VLCOLB          ; colorbyte = color & 0x0F
+        MVI     A,0F0H
+        STA     VLMASK          ; mask = 0xF0 (keep high nibble)
+        JMP     VLPRE_PAR
+VLPRE_ODD:
+        MOV     A,E             ; Odd X: pixel in bits 7:4
+        RLC
+        RLC
+        RLC
+        RLC                     ; color << 4
+        STA     VLCOLB          ; colorbyte = (color & 0x0F) << 4
+        MVI     A,0FH
+        STA     VLMASK          ; mask = 0x0F (keep low nibble)
+VLPRE_PAR:
+
+        ; Compute starting byte address in HL
+        ; Combined xo+yo high byte in D; xo=512->D=2, yo=1024->D+=4
+        MVI     D,0             ; D = xo+yo high byte = 0
+        MOV     A,B             ; A = X
+        CPI     32
+        JC      VLPRE_XD
+        SUI     32
+        MOV     B,A             ; B = adjusted dzx (0-31)
+        INR     D
+        INR     D               ; xo=512: D=2
+VLPRE_XD:
+        MOV     A,C             ; A = Y1 (C preserved as loop counter)
+        CPI     32
+        JC      VLPRE_YD        ; Y1 < 32: dzy = Y1, yo = 0
+        SUI     32              ; A = dzy = Y1-32
+        PUSH    PSW             ; Save dzy while modifying D
+        MOV     A,D
+        ADI     4
+        MOV     D,A             ; D += 4 (yo=1024)
+        POP     PSW             ; Restore A = dzy
+        JMP     VLPRE_YDONE
+VLPRE_YD:
+        ; A = Y1 = dzy (Y1 < 32, yo = 0)
+VLPRE_YDONE:
+        ; A=dzy (0-31), D=xo+yo high byte, B=adj dzx, C=Y1 (intact)
+        PUSH    D               ; Save xo+yo high byte (pushes DE pair)
+        LHLD    FBBASE          ; HL = frame buffer base
+        PUSH    PSW             ; Save dzy while computing dzx/2
+        MOV     A,B             ; A = adj dzx
+        RRC
+        ANI     7FH             ; A = dzx/2 (0-15)
+        MOV     E,A
+        MVI     D,0
+        DAD     D               ; HL += dzx/2
+        POP     PSW             ; Restore A = dzy
+        XCHG                    ; DE = FBBASE+dzx/2 (save partial)
+        MOV     L,A             ; L = dzy
+        MVI     H,0
+        DAD     H               ; HL = dzy*2
+        DAD     H               ; HL = dzy*4
+        DAD     H               ; HL = dzy*8
+        DAD     H               ; HL = dzy*16
+        DAD     D               ; HL = FBBASE+dzx/2+dzy*16
+        POP     D               ; D = xo+yo high byte
+        MOV     A,D
+        ADD     H               ; H += xo+yo high byte (lo byte is always 0)
+        MOV     H,A             ; HL = starting byte address
+
+        ; Move colorbyte to B for the loop (adj dzx no longer needed)
+        LDA     VLCOLB
+        MOV     B,A             ; B = precomputed color nibble byte
+
+        ; Check for quadrant boundary crossing (Y1 < 32 and Y2 >= 32)
+        MOV     A,C             ; A = Y1
+        CPI     32
+        JNC     VLLOOP          ; Y1 >= 32: entirely in upper half, no boundary
+        LDA     VLYSTOP         ; A = Y2
+        CPI     32
+        JC      VLLOOP          ; Y2 < 32: entirely in lower half, no boundary
+
+        ; Y1 < 32 and Y2 >= 32: boundary at Y=32 must be handled
+        PUSH    PSW             ; Save Y2 for after segment 1
+        MVI     A,31
+        STA     VLYSTOP         ; Segment 1 stops at Y=31
+
+VLLOOP_S1:
+        ; Segment 1 loop: Y = Y1 .. 31 (below quadrant boundary)
+        MOV     A,M             ; Read byte at current address
+        MOV     D,A             ; Save byte
+        LDA     VLMASK          ; A = nibble mask
+        ANA     D               ; byte & mask (clears our nibble)
+        ORA     B               ; | colorbyte (sets our pixel)
+        MOV     M,A             ; Write back
+        LDA     VLYSTOP         ; A = 31
+        CMP     C               ; Done with segment 1?
+        JZ      VL_BOUNDARY     ; Yes: apply quadrant correction
+        LXI     D,16
+        DAD     D               ; HL += 16 (advance one row)
+        INR     C               ; Next Y
+        JMP     VLLOOP_S1
+
+VL_BOUNDARY:
+        ; Just drew Y=31; addr(32) = addr(31) + 528
+        ; [528 = 16 normal stride + 512 quadrant correction]
+        LXI     D,528
+        DAD     D               ; HL = address of row Y=32
+        MVI     C,32            ; C = 32 (start of segment 2)
+        POP     PSW             ; A = original Y2
+        STA     VLYSTOP         ; Restore Y2 for segment 2
+        ; Falls through into VLLOOP for segment 2
+
+VLLOOP:
+        ; Main loop: Y = C to VLYSTOP, no boundary within this range
+        MOV     A,M             ; Read byte at current address
+        MOV     D,A             ; Save byte
+        LDA     VLMASK          ; A = nibble mask
+        ANA     D               ; byte & mask
+        ORA     B               ; | colorbyte
+        MOV     M,A             ; Write back
+        LDA     VLYSTOP         ; A = Y2
+        CMP     C               ; Done?
+        JZ      VLDONE
+        LXI     D,16
+        DAD     D               ; HL += 16
+        INR     C               ; Next Y
+        JMP     VLLOOP
+
+VLDONE:
+        XRA     A
+        RET
+
+;-------------------------------------------------------------------
+; DZLCIRC - Draw circle using Bresenham's algorithm
+;
+; Entry:  B = XM (center X)
+;         C = YM (center Y)
+;         D = R (radius)
+;         A = Color
+; Exit:   A = 0 on success
+; Uses:   All registers
+;-------------------------------------------------------------------
+DZLCIRC:
+        ; Save parameters
+        STA     CIRCC           ; Save color
+        MOV     A,B
+        STA     CIRCXC          ; Save center X
+        MOV     A,C
+        STA     CIRCYC          ; Save center Y
+        MOV     A,D
+        STA     CIRCR           ; Save radius
+
+        ; x = 0
+        XRA     A
+        STA     CIRCX
+
+        ; y = r
+        MOV     A,D
+        STA     CIRCY
+
+        ; d = 3 - 2*r
+        ADD     A               ; 2*r
+        MOV     E,A
+        MVI     A,3
+        SUB     E               ; 3 - 2*r
+        STA     CIRCD           ; d (low byte)
+        MVI     A,0
+        SBB     A               ; Sign extend
+        STA     CIRCD+1         ; d (high byte)
+
+CIRCLOOP:
+        ; Plot 8 symmetric points
+        CALL    PLOT8
+
+        ; x++
+        LDA     CIRCX
+        INR     A
+        STA     CIRCX
+
+        ; Check if d < 0
+        LHLD    CIRCD
+        MOV     A,H             ; Check sign
+        ORA     A
+        JM      CIRCNEG         ; d < 0
+
+        ; d >= 0: y--; d = d + 4*(x-y) + 10
+        LDA     CIRCY
+        DCR     A
+        STA     CIRCY
+
+        ; d = d + 4*(x-y) + 10
+        LDA     CIRCX
+        MOV     E,A
+        LDA     CIRCY
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; x - y
+        ADD     A               ; 2*(x-y)
+        ADD     A               ; 4*(x-y)
+        ADI     10              ; 4*(x-y) + 10
+        MOV     E,A
+        MVI     D,0
+        ORA     A
+        JP      CIRCD1
+        MVI     D,0FFH          ; Sign extend
+CIRCD1:
+        LHLD    CIRCD
+        DAD     D
+        SHLD    CIRCD
+        JMP     CIRCCHK
+
+CIRCNEG:
+        ; d < 0: d = d + 4*x + 6
+        LDA     CIRCX
+        ADD     A               ; 2*x
+        ADD     A               ; 4*x
+        ADI     6               ; 4*x + 6
+        MOV     E,A
+        MVI     D,0
+        LHLD    CIRCD
+        DAD     D
+        SHLD    CIRCD
+
+CIRCCHK:
+        ; while (x <= y)
+        LDA     CIRCX
+        MOV     E,A
+        LDA     CIRCY
+        CMP     E               ; Compare y with x
+        JNC     CIRCLOOP        ; Continue if y >= x
+
+        ; Done
+        XRA     A
+        RET
+
+;-------------------------------------------------------------------
+; PLOT8 - Plot 8 symmetric points for DZLCIRC
+;
+; Uses CIRCXC, CIRCYC, CIRCX, CIRCY, CIRCC
+;-------------------------------------------------------------------
+PLOT8:
+        ; (xc+x, yc+y)
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCX
+        ADD     E
+        MOV     B,A
+        LDA     CIRCYC
+        MOV     E,A
+        LDA     CIRCY
+        ADD     E
+        MOV     C,A
+        LDA     CIRCC
+        CALL    DZLPSET
+        ; After: B=xc+x, C=yc+y preserved
+
+        ; (xc-x, yc+y) - B=xc+x->xc-x via SUB; C=yc+y reused
+        LDA     CIRCX
+        MOV     E,A
+        MOV     A,B
+        SUB     E
+        SUB     E
+        MOV     B,A
+        LDA     CIRCC
+        CALL    DZLPSET
+        ; After: B=xc-x, C=yc+y preserved
+
+        ; (xc+x, yc-y) - B=xc-x->xc+x via ADD; new C
+        LDA     CIRCX
+        MOV     E,A
+        MOV     A,B
+        ADD     E
+        ADD     E
+        MOV     B,A
+        LDA     CIRCYC
+        MOV     E,A
+        LDA     CIRCY
+        MOV     D,A
+        MOV     A,E
+        SUB     D
+        MOV     C,A
+        LDA     CIRCC
+        CALL    DZLPSET
+        ; After: B=xc+x, C=yc-y preserved
+
+        ; (xc-x, yc-y) - B=xc+x->xc-x via SUB; C=yc-y reused
+        LDA     CIRCX
+        MOV     E,A
+        MOV     A,B
+        SUB     E
+        SUB     E
+        MOV     B,A
+        LDA     CIRCC
+        CALL    DZLPSET
+        ; After: B=xc-x, C=yc-y preserved
+
+        ; (xc+y, yc+x) - fresh computation
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCY
+        ADD     E
+        MOV     B,A
+        LDA     CIRCYC
+        MOV     E,A
+        LDA     CIRCX
+        ADD     E
+        MOV     C,A
+        LDA     CIRCC
+        CALL    DZLPSET
+        ; After: B=xc+y, C=yc+x preserved
+
+        ; (xc-y, yc+x) - B=xc+y->xc-y via SUB; C=yc+x reused
+        LDA     CIRCY
+        MOV     E,A
+        MOV     A,B
+        SUB     E
+        SUB     E
+        MOV     B,A
+        LDA     CIRCC
+        CALL    DZLPSET
+        ; After: B=xc-y, C=yc+x preserved
+
+        ; (xc+y, yc-x) - B=xc-y->xc+y via ADD; new C
+        LDA     CIRCY
+        MOV     E,A
+        MOV     A,B
+        ADD     E
+        ADD     E
+        MOV     B,A
+        LDA     CIRCYC
+        MOV     E,A
+        LDA     CIRCX
+        MOV     D,A
+        MOV     A,E
+        SUB     D
+        MOV     C,A
+        LDA     CIRCC
+        CALL    DZLPSET
+        ; After: B=xc+y, C=yc-x preserved
+
+        ; (xc-y, yc-x) - B=xc+y->xc-y via SUB; C=yc-x reused
+        LDA     CIRCY
+        MOV     E,A
+        MOV     A,B
+        SUB     E
+        SUB     E
+        MOV     B,A
+        LDA     CIRCC
+        CALL    DZLPSET
+
+        RET
+
+;-------------------------------------------------------------------
+; DZLFCIRC - Draw filled circle using Bresenham's algorithm
+;
+; Entry:  B = XC (center X)
+;         C = YC (center Y)
+;         D = R (radius)
+;         A = Color
+; Exit:   A = 0 on success
+; Uses:   All registers
+;-------------------------------------------------------------------
+DZLFCIRC:
+        ; Save parameters
+        STA     CIRCC           ; Save color
+        MOV     A,B
+        STA     CIRCXC          ; Save center X
+        MOV     A,C
+        STA     CIRCYC          ; Save center Y
+        MOV     A,D
+        STA     CIRCR           ; Save radius
+
+        ; x = 0
+        XRA     A
+        STA     CIRCX
+
+        ; y = r
+        MOV     A,D
+        STA     CIRCY
+
+        ; d = 3 - 2*r
+        ADD     A               ; 2*r
+        MOV     E,A
+        MVI     A,3
+        SUB     E               ; 3 - 2*r
+        STA     CIRCD           ; d (low byte)
+        MVI     A,0
+        SBB     A               ; Sign extend
+        STA     CIRCD+1         ; d (high byte)
+
+FCLOOP:
+        ; Fill horizontal lines at each y level
+        CALL    FILLH
+
+        ; x++
+        LDA     CIRCX
+        INR     A
+        STA     CIRCX
+
+        ; Check if d < 0
+        LHLD    CIRCD
+        MOV     A,H             ; Check sign
+        ORA     A
+        JM      FCNEG           ; d < 0
+
+        ; d >= 0: y--; d = d + 4*(x-y) + 10
+        LDA     CIRCY
+        DCR     A
+        STA     CIRCY
+
+        ; d = d + 4*(x-y) + 10
+        LDA     CIRCX
+        MOV     E,A
+        LDA     CIRCY
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; x - y
+        ADD     A               ; 2*(x-y)
+        ADD     A               ; 4*(x-y)
+        ADI     10              ; 4*(x-y) + 10
+        MOV     E,A
+        MVI     D,0
+        ORA     A
+        JP      FCD1
+        MVI     D,0FFH          ; Sign extend
+FCD1:
+        LHLD    CIRCD
+        DAD     D
+        SHLD    CIRCD
+        JMP     FCCHK
+
+FCNEG:
+        ; d < 0: d = d + 4*x + 6
+        LDA     CIRCX
+        ADD     A               ; 2*x
+        ADD     A               ; 4*x
+        ADI     6               ; 4*x + 6
+        MOV     E,A
+        MVI     D,0
+        LHLD    CIRCD
+        DAD     D
+        SHLD    CIRCD
+
+FCCHK:
+        ; while (x <= y)
+        LDA     CIRCX
+        MOV     E,A
+        LDA     CIRCY
+        CMP     E               ; Compare y with x
+        JNC     FCLOOP          ; Continue if y >= x
+
+        ; Done
+        XRA     A
+        RET
+
+        END
+

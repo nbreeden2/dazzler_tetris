@@ -1,0 +1,615 @@
+        TITLE   'Tetris for Cromemco Dazzler'
+;--------------------------------------------------------------
+; TETRIS.MAC - Main program, game loop, input, console I/O
+;
+; Tetris for the Cromemco Dazzler 64x64 display.
+; Version: 1.00
+; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
+;
+; Build:
+;   M80 =TETRIS
+;   M80 =TETMOVE
+;   M80 =TETDRAW
+;   M80 =TETDATA
+;   M80 =D64X64
+;   M80 =D64X64A
+;   M80 =D64X64B
+;   L80 TETRIS,TETMOVE,TETDRAW,TETDATA,D64X64,
+;       D64X64A,D64X64B,TETRIS/N/E
+;
+; Run:
+;   A>TETRIS
+;
+; Controls:
+;   A = Move left    D = Move right
+;   W = Rotate CW    S = Soft drop
+;   SPACE = Hard drop    Q = Quit
+;--------------------------------------------------------------
+
+;--------------------------------------------------------------
+; Public declarations
+;--------------------------------------------------------------
+;       (RANDOM is local-only, no PUBLIC needed)
+
+;--------------------------------------------------------------
+; External - D64X64 graphics library
+;--------------------------------------------------------------
+        EXTRN   DZLINIT,DZLCLOSE,DZLCLR,DZWAIT
+
+;--------------------------------------------------------------
+; External - tetmove.mac (game mechanics)
+;--------------------------------------------------------------
+        EXTRN   COLLIDE,GETROT
+        EXTRN   MOVELFT,MOVERGT,MOVEDN
+        EXTRN   ROTATE,HARDDROP
+        EXTRN   LOCKPC,CLRLINE,ADDSCORE,UPDLVL
+
+;--------------------------------------------------------------
+; External - tetdraw.mac (rendering)
+;--------------------------------------------------------------
+        EXTRN   DRAWBDR,DRWBOX,DRAWPC,ERSPC
+        EXTRN   DRWNXT,ERSNXT,REDRAW,DRAWLVL
+        EXTRN   DLEVEL
+
+;--------------------------------------------------------------
+; External - tetdata.mac (data and variables)
+;--------------------------------------------------------------
+        EXTRN   BOARD
+        EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
+        EXTRN   PCNEXT,ROTIDX,PCTBL
+        EXTRN   SCORE,LINES,LEVEL
+        EXTRN   GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
+        EXTRN   RNGSEED,SPDTBL,DRPFLG
+
+;--------------------------------------------------------------
+; CP/M equates
+;--------------------------------------------------------------
+BDOS    EQU     0005H           ; BDOS entry point
+WBOOT   EQU     0000H           ; Warm boot
+CONOUT  EQU     02H             ; Console output
+PSTRING EQU     09H             ; Print string
+DIRCON  EQU     06H             ; Direct console I/O
+
+; Dazzler configuration
+DZLBASE EQU     0F000H          ; Frame buffer base
+
+; Color equates
+BLACK   EQU     0
+
+;--------------------------------------------------------------
+; Program entry point
+;--------------------------------------------------------------
+        ORG     100H
+
+START:
+        ; Print startup message to console
+        LXI     D,MSGSTRT
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        ; Print controls
+        LXI     D,MSGCTRL
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        ; Initialize Dazzler hardware
+        LXI     H,DZLBASE
+        CALL    DZLINIT
+
+        ; Clear screen to black
+        MVI     A,BLACK
+        CALL    DZLCLR
+
+        ; Draw playfield border
+        CALL    DRAWBDR
+
+        ; Draw next-piece preview box
+        CALL    DRWBOX
+
+        ; Clear the board array (200 bytes)
+        LXI     H,BOARD
+        MVI     B,200
+CLRBRD:
+        MVI     M,0
+        INX     H
+        DCR     B
+        JNZ     CLRBRD
+
+        ; Initialize game state
+        XRA     A
+        STA     LEVEL
+        STA     GAMOVR
+        STA     LNCOUNT
+        STA     DRPFLG
+        LXI     H,0
+        SHLD    SCORE
+        SHLD    LINES
+
+        ; Set initial gravity speed
+        LDA     SPDTBL          ; Level 0 speed
+        STA     GRAVMAX
+        STA     GRAVCNT
+        MVI     A,4             ; Prescaler: quarter speed
+        STA     GRAVPRE
+
+        ; Seed RNG from low memory timer area
+        ; (Use a somewhat arbitrary seed value)
+        MVI     A,137
+        STA     RNGSEED
+
+        ; Generate first piece (as "next")
+        CALL    RANDOM
+        STA     PCNEXT
+
+        ; Spawn first piece
+        CALL    SPAWN
+        LDA     GAMOVR
+        ORA     A
+        JNZ     GAMEOVER        ; Shouldn't happen
+
+        ; Draw initial next piece preview
+        CALL    DRWNXT
+
+        ; Draw initial level indicator
+        CALL    DRAWLVL
+
+        ; Print initial score line
+        CALL    PRTSCR
+
+;--------------------------------------------------------------
+; Main game loop
+;--------------------------------------------------------------
+GAMELP:
+        ; Check game over flag
+        LDA     GAMOVR
+        ORA     A
+        JNZ     GAMEOVER
+
+        ; Poll keyboard (non-blocking)
+        MVI     E,0FFH
+        MVI     C,DIRCON
+        CALL    BDOS
+        ORA     A
+        JZ      NOGRAV          ; No key: skip input
+
+        ; Advance RNG seed on every keypress
+        PUSH    PSW             ; Save key
+        LDA     RNGSEED
+        ADI     31              ; Perturb seed
+        STA     RNGSEED
+        POP     PSW
+
+        ; Dispatch input
+        CPI     'a'
+        JZ      DOLEFT
+        CPI     'A'
+        JZ      DOLEFT
+        CPI     'd'
+        JZ      DORIGHT
+        CPI     'D'
+        JZ      DORIGHT
+        CPI     'w'
+        JZ      DOROT
+        CPI     'W'
+        JZ      DOROT
+        CPI     's'
+        JZ      DOSOFT
+        CPI     'S'
+        JZ      DOSOFT
+        CPI     ' '
+        JZ      DOHARD
+        CPI     'q'
+        JZ      DOQUIT
+        CPI     'Q'
+        JZ      DOQUIT
+        JMP     NOGRAV          ; Unrecognized key
+
+DOLEFT:
+        CALL    MOVELFT
+        JMP     NOGRAV
+
+DORIGHT:
+        CALL    MOVERGT
+        JMP     NOGRAV
+
+DOROT:
+        CALL    ROTATE
+        JMP     NOGRAV
+
+DOSOFT:
+        ; Soft drop: move down + 1 point
+        CALL    MOVEDN
+        JNZ     DOLOCK          ; Blocked: lock piece
+        ; Moved: add 1 point
+        LHLD    SCORE
+        INX     H
+        SHLD    SCORE
+        CALL    PRTSCR          ; Update display
+        JMP     NOGRAV
+
+DOHARD:
+        ; Hard drop: instant drop then lock
+        CALL    HARDDROP
+        CALL    PRTSCR          ; Show drop pts
+        JMP     DOLOCK          ; Always lock after
+
+DOQUIT:
+        JMP     QUIT
+
+;--------------------------------------------------------------
+; Gravity processing
+;--------------------------------------------------------------
+NOGRAV:
+        ; Decrement gravity counter
+        LDA     GRAVCNT
+        DCR     A
+        STA     GRAVCNT
+        JNZ     GAMELP          ; Not yet
+
+        ; Counter hit zero - check prescaler
+        LDA     GRAVPRE
+        DCR     A
+        STA     GRAVPRE
+        JNZ     NOFIRE          ; Prescaler not done
+
+        ; Prescaler done: gravity fires
+        MVI     A,4             ; Fixed prescaler
+        STA     GRAVPRE
+        JMP     GFIRE
+
+NOFIRE:
+        ; Reset counter only, no gravity yet
+        LDA     GRAVMAX
+        STA     GRAVCNT
+        JMP     GAMELP
+
+GFIRE:
+        ; Reset counter
+        LDA     GRAVMAX
+        STA     GRAVCNT
+
+        ; Try to move piece down
+        CALL    MOVEDN
+        JZ      GAMELP          ; Moved: continue
+
+        ; Piece can't move down: lock it
+DOLOCK:
+        CALL    LOCKPC
+
+        ; Check and clear lines
+        CALL    CLRLINE         ; A = lines cleared
+        PUSH    PSW             ; Save count
+
+        ; If lines cleared, update score/level/display
+        ORA     A
+        JZ      NOLINE
+
+        ; Add score
+        POP     PSW
+        PUSH    PSW
+        CALL    ADDSCORE
+
+        ; Update level
+        POP     PSW
+        PUSH    PSW
+        CALL    UPDLVL
+
+        ; Redraw the board after line removal
+        CALL    REDRAW
+
+        ; Update level indicator
+        LDA     LEVEL
+        STA     DLEVEL
+        CALL    DRAWLVL
+
+NOLINE:
+        POP     PSW             ; Discard/clean stack
+
+        ; Print updated score
+        CALL    PRTSCR
+
+        ; Spawn next piece
+        CALL    SPAWN
+
+        ; Check game over
+        LDA     GAMOVR
+        ORA     A
+        JNZ     GAMEOVER
+
+        ; Draw next piece preview
+        CALL    DRWNXT
+
+        JMP     GAMELP
+
+;--------------------------------------------------------------
+; SPAWN - Spawn a new piece
+;
+; Current = next, generate new next.
+; Spawn at col=3, row=0. Test collision for game over.
+;--------------------------------------------------------------
+SPAWN:
+        ; Current piece = next
+        LDA     PCNEXT
+        STA     PCTYPE
+
+        ; Look up color for this piece type
+        MOV     E,A
+        MVI     D,0
+        LXI     H,PCTBL
+        DAD     D
+        MOV     A,M
+        STA     PCCLR
+
+        ; Set spawn position
+        MVI     A,3
+        STA     PCCOL           ; Column 3 (centered)
+        XRA     A
+        STA     PCROW           ; Row 0 (top)
+        STA     PCROT           ; Rotation 0
+
+        ; Generate next piece
+        CALL    RANDOM
+        STA     PCNEXT
+
+        ; Erase old next preview, draw new one
+        CALL    ERSNXT
+        CALL    DRWNXT
+
+        ; Test collision at spawn position
+        LDA     PCTYPE
+        LXI     B,0             ; B=rot=0
+        LDA     PCCOL
+        MOV     C,A             ; C = col
+        LDA     PCROW
+        MOV     D,A             ; D = row
+        LDA     PCTYPE          ; A = type
+        CALL    COLLIDE
+        JNZ     SPNDIE          ; Collision = game over
+
+        ; Draw the new piece
+        CALL    DRAWPC
+        RET
+
+SPNDIE:
+        MVI     A,1
+        STA     GAMOVR          ; Set game over flag
+        RET
+
+;--------------------------------------------------------------
+; RANDOM - Generate random piece index 0-6
+;
+; 8-bit LFSR with reject sampling.
+; Exit:   A = piece index (0-6)
+; Uses:   A
+;--------------------------------------------------------------
+RANDOM:
+        PUSH    B
+RAND1:
+        LDA     RNGSEED
+        ; LFSR: x^8+x^6+x^5+x^4+1
+        ; Tap bits 7,5,4,3
+        MOV     B,A             ; Save current
+        RLC                     ; Rotate left
+        XRA     B               ; XOR with original
+        RLC                     ; Another shift
+        XRA     B               ; More mixing
+        INR     A               ; Avoid stuck at 0
+        STA     RNGSEED
+
+        ; Reduce to 0-6 via rejection
+        ANI     07H             ; 0-7
+        CPI     7
+        JNC     RAND1           ; Reject 7, retry
+
+        POP     B
+        RET
+
+;--------------------------------------------------------------
+; Game Over
+;--------------------------------------------------------------
+GAMEOVER:
+        ; Print game over message to console
+        LXI     D,MSGOVER
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        ; Print final score
+        LXI     D,MSGFSCR
+        MVI     C,PSTRING
+        CALL    BDOS
+        LHLD    SCORE
+        CALL    PRTDEC
+
+        ; Print total lines
+        LXI     D,MSGNL
+        MVI     C,PSTRING
+        CALL    BDOS
+        LXI     D,MSGFLN
+        MVI     C,PSTRING
+        CALL    BDOS
+        LHLD    LINES
+        CALL    PRTDEC
+
+        ; Print final level
+        LXI     D,MSGNL
+        MVI     C,PSTRING
+        CALL    BDOS
+        LXI     D,MSGFLV
+        MVI     C,PSTRING
+        CALL    BDOS
+        LDA     LEVEL
+        MOV     L,A
+        MVI     H,0
+        CALL    PRTDEC
+
+        LXI     D,MSGNL
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        ; Wait for keypress
+        LXI     D,MSGWAIT
+        MVI     C,PSTRING
+        CALL    BDOS
+        MVI     C,1             ; Console input
+        CALL    BDOS
+
+        ; Fall through to QUIT
+
+;--------------------------------------------------------------
+; QUIT - Clean exit
+;--------------------------------------------------------------
+QUIT:
+        CALL    DZLCLOSE
+        JMP     WBOOT
+
+;--------------------------------------------------------------
+; Console output functions
+;--------------------------------------------------------------
+
+;--------------------------------------------------------------
+; PRTSCR - Print score/lines/level status line
+;
+; Outputs CR then the status line (overwrites in place).
+;--------------------------------------------------------------
+PRTSCR:
+        ; CR to return to start of line
+        MVI     A,0DH
+        CALL    PRTCH
+
+        ; "Score: "
+        LXI     D,MSCSCO
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        ; Print score (16-bit decimal)
+        LHLD    SCORE
+        CALL    PRTDEC
+
+        ; "  Lines: "
+        LXI     D,MSCLIN
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        ; Print lines (16-bit decimal)
+        LHLD    LINES
+        CALL    PRTDEC
+
+        ; "  Level: "
+        LXI     D,MSCLVL
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        ; Print level (8-bit)
+        LDA     LEVEL
+        MOV     L,A
+        MVI     H,0
+        CALL    PRTDEC
+
+        RET
+
+;--------------------------------------------------------------
+; PRTDEC - Print HL as unsigned decimal (up to 65535)
+;
+; Prints with leading zeros for 5 digits.
+; Entry:  HL = 16-bit value
+; Uses:   All registers
+;--------------------------------------------------------------
+PRTDEC:
+        ; Divide HL by powers of 10 and print
+        ; 10000, 1000, 100, 10, 1
+        LXI     D,10000
+        CALL    PDDIV
+        LXI     D,1000
+        CALL    PDDIV
+        LXI     D,100
+        CALL    PDDIV
+        LXI     D,10
+        CALL    PDDIV
+        ; Last digit: HL = remainder (0-9)
+        MOV     A,L
+        ADI     '0'
+        CALL    PRTCH
+        RET
+
+;--------------------------------------------------------------
+; PDDIV - Divide HL by DE, print quotient digit
+;
+; Entry:  HL = value, DE = divisor
+; Exit:   HL = remainder
+; Uses:   A, B
+;--------------------------------------------------------------
+PDDIV:
+        MVI     B,'0'           ; Digit = '0'
+PDDV1:
+        ; Try HL - DE
+        MOV     A,L
+        SUB     E
+        MOV     C,A             ; Save low
+        MOV     A,H
+        SBB     D               ; Borrow?
+        JC      PDDV2           ; Underflow: done
+        MOV     H,A             ; Commit subtract
+        MOV     L,C
+        INR     B               ; digit++
+        JMP     PDDV1
+PDDV2:
+        MOV     A,B
+        CALL    PRTCH           ; Print digit
+        RET
+
+;--------------------------------------------------------------
+; PRTCH - Print character in A to console
+;
+; Entry:  A = character
+; Uses:   C, D, E (BDOS)
+;--------------------------------------------------------------
+PRTCH:
+        PUSH    PSW
+        PUSH    B
+        PUSH    D
+        PUSH    H
+        MOV     E,A
+        MVI     C,CONOUT
+        CALL    BDOS
+        POP     H
+        POP     D
+        POP     B
+        POP     PSW
+        RET
+
+;--------------------------------------------------------------
+; Console message strings
+;--------------------------------------------------------------
+MSGSTRT:
+        DB      'TETRIS for Cromemco Dazzler v1.00'
+        DB      13,10,'$'
+
+MSGCTRL:
+        DB      'A=Left D=Right W=Rotate '
+        DB      'S=Drop SPACE=Hard Q=Quit'
+        DB      13,10,10,'$'
+
+MSGOVER:
+        DB      13,10,10,'GAME OVER!',13,10,'$'
+
+MSGFSCR:
+        DB      'Final Score: $'
+MSGFLN:
+        DB      'Total Lines: $'
+MSGFLV:
+        DB      'Final Level: $'
+
+MSGWAIT:
+        DB      13,10
+        DB      'Press any key to exit...'
+        DB      13,10,'$'
+
+MSGNL:
+        DB      13,10,'$'
+
+MSCSCO: DB      'Score: $'
+MSCLIN: DB      '  Lines: $'
+MSCLVL: DB      '  Level: $'
+
+        END     START
+

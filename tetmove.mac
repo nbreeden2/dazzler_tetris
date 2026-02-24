@@ -1,0 +1,641 @@
+        TITLE   'Tetris Game Mechanics'
+;--------------------------------------------------------------
+; TETMOVE.MAC - Movement, collision, locking, lines, score
+;
+; Part of the Tetris for Cromemco Dazzler project.
+; Version: 1.00
+;
+; Assembler: Microsoft M80
+;--------------------------------------------------------------
+
+;--------------------------------------------------------------
+; Public and external declarations
+;--------------------------------------------------------------
+        PUBLIC  GETROT,COLLIDE
+        PUBLIC  MOVELFT,MOVERGT,MOVEDN
+        PUBLIC  ROTATE,HARDDROP
+        PUBLIC  LOCKPC,CLRLINE,ADDSCORE,UPDLVL
+
+        EXTRN   ERSPC,DRAWPC
+        EXTRN   BOARD
+        EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
+        EXTRN   ROTIDX,ROTMAX,PCTBL
+        EXTRN   SPDTBL,SCRTBL
+        EXTRN   SCORE,LINES,LEVEL
+        EXTRN   GRAVCNT,GRAVMAX,LNCOUNT,DRPFLG
+
+;--------------------------------------------------------------
+; GETROT - Get address of rotation data
+;
+; Entry:  B = piece type (0-6)
+;         A = rotation state
+; Exit:   HL = address of 8-byte rotation data
+; Uses:   A, HL, DE
+;--------------------------------------------------------------
+GETROT:
+        PUSH    PSW             ; Save rotation
+        ; Look up ROTIDX[type] -> base address
+        MOV     A,B
+        ADD     A               ; type*2 (word index)
+        MOV     E,A
+        MVI     D,0
+        LXI     H,ROTIDX
+        DAD     D               ; HL = &ROTIDX[type]
+        MOV     E,M
+        INX     H
+        MOV     D,M             ; DE = base addr
+        ; Add rotation * 8
+        POP     PSW             ; A = rotation
+        ADD     A               ; rot*2
+        ADD     A               ; rot*4
+        ADD     A               ; rot*8
+        MOV     L,A
+        MVI     H,0
+        DAD     D               ; HL = base + rot*8
+        RET
+
+;--------------------------------------------------------------
+; COLLIDE - Test piece at position for collision
+;
+; Entry:  A = piece type (0-6)
+;         B = rotation state
+;         C = column (signed)
+;         D = row (signed)
+; Exit:   Z=no collision, NZ=collision
+; Uses:   All registers
+;--------------------------------------------------------------
+COLLIDE:
+        ; Save all parameters to memory
+        STA     COLLTP
+        MOV     A,B
+        STA     COLLRT
+        MOV     A,C
+        STA     COLLTC
+        MOV     A,D
+        STA     COLLTR
+
+        ; Get rotation data: GETROT(B=type, A=rot)
+        LDA     COLLTP
+        MOV     B,A
+        LDA     COLLRT
+        CALL    GETROT          ; HL = rotation data
+
+        ; Test 4 cells
+        MVI     E,4
+COLL1:
+        PUSH    D               ; Save counter
+        PUSH    H               ; Save data pointer
+
+        MOV     B,M             ; B = dc
+        INX     H
+        MOV     C,M             ; C = dr
+
+        ; test_col = col + dc
+        LDA     COLLTC
+        ADD     B
+        CPI     128
+        JNC     COLLHIT         ; Negative
+        CPI     10
+        JNC     COLLHIT         ; >= 10
+        MOV     B,A             ; B = valid col
+
+        ; test_row = row + dr
+        LDA     COLLTR
+        ADD     C
+        CPI     128
+        JNC     COLLHIT         ; Negative
+        CPI     20
+        JNC     COLLHIT         ; >= 20
+        MOV     C,A             ; C = valid row
+
+        ; Check board[row*10 + col]
+        MOV     A,C
+        CALL    ROWX10          ; A = row*10
+        ADD     B               ; + col
+        MOV     E,A
+        MVI     D,0
+        LXI     H,BOARD
+        DAD     D
+        MOV     A,M
+        ORA     A
+        JNZ     COLLHIT         ; Occupied
+
+        POP     H               ; Restore data ptr
+        INX     H
+        INX     H
+        POP     D
+        DCR     E
+        JNZ     COLL1
+
+        ; All clear
+        XRA     A               ; Z set
+        RET
+
+COLLHIT:
+        POP     H
+        POP     D
+        MVI     A,1
+        ORA     A               ; NZ set
+        RET
+
+; Collision local vars
+COLLTP: DB      0               ; Type
+COLLRT: DB      0               ; Rotation
+COLLTC: DB      0               ; Column
+COLLTR: DB      0               ; Row
+
+;--------------------------------------------------------------
+; ROWX10 - Multiply A by 10
+;
+; Entry:  A = value (0-19)
+; Exit:   A = value * 10
+; Uses:   A, D
+;--------------------------------------------------------------
+ROWX10:
+        MOV     D,A             ; D = n
+        ADD     A               ; n*2
+        ADD     A               ; n*4
+        ADD     A               ; n*8
+        ADD     D               ; n*9
+        ADD     D               ; n*10
+        RET
+
+;--------------------------------------------------------------
+; MOVELFT - Move piece left
+;
+; Exit:   Z = moved, NZ = blocked
+; Uses:   All registers
+;--------------------------------------------------------------
+MOVELFT:
+        CALL    ERSPC
+        ; Test at (col-1, row, rot)
+        LDA     PCTYPE
+        PUSH    PSW
+        LDA     PCROT
+        MOV     B,A
+        LDA     PCCOL
+        DCR     A
+        MOV     C,A
+        LDA     PCROW
+        MOV     D,A
+        POP     PSW             ; A = type
+        CALL    COLLIDE
+        JNZ     MLBLK
+        ; Success: update col
+        LDA     PCCOL
+        DCR     A
+        STA     PCCOL
+        CALL    DRAWPC
+        XRA     A
+        RET
+MLBLK:
+        CALL    DRAWPC          ; Redraw old pos
+        MVI     A,1
+        ORA     A
+        RET
+
+;--------------------------------------------------------------
+; MOVERGT - Move piece right
+;
+; Exit:   Z = moved, NZ = blocked
+; Uses:   All registers
+;--------------------------------------------------------------
+MOVERGT:
+        CALL    ERSPC
+        LDA     PCTYPE
+        PUSH    PSW
+        LDA     PCROT
+        MOV     B,A
+        LDA     PCCOL
+        INR     A
+        MOV     C,A
+        LDA     PCROW
+        MOV     D,A
+        POP     PSW
+        CALL    COLLIDE
+        JNZ     MRBLK
+        LDA     PCCOL
+        INR     A
+        STA     PCCOL
+        CALL    DRAWPC
+        XRA     A
+        RET
+MRBLK:
+        CALL    DRAWPC
+        MVI     A,1
+        ORA     A
+        RET
+
+;--------------------------------------------------------------
+; MOVEDN - Move piece down one row
+;
+; Exit:   Z = moved, NZ = blocked (should lock)
+; Uses:   All registers
+;--------------------------------------------------------------
+MOVEDN:
+        CALL    ERSPC
+        LDA     PCTYPE
+        PUSH    PSW
+        LDA     PCROT
+        MOV     B,A
+        LDA     PCCOL
+        MOV     C,A
+        LDA     PCROW
+        INR     A
+        MOV     D,A
+        POP     PSW
+        CALL    COLLIDE
+        JNZ     MDBLK
+        LDA     PCROW
+        INR     A
+        STA     PCROW
+        CALL    DRAWPC
+        XRA     A
+        RET
+MDBLK:
+        CALL    DRAWPC
+        MVI     A,1
+        ORA     A
+        RET
+
+;--------------------------------------------------------------
+; ROTATE - Rotate piece clockwise
+;
+; Exit:   Z = rotated, NZ = blocked
+; Uses:   All registers
+;--------------------------------------------------------------
+ROTATE:
+        CALL    ERSPC
+
+        ; Compute next rotation: (rot+1) mod max
+        LDA     PCTYPE
+        MOV     E,A             ; E = type
+        MVI     D,0
+        LXI     H,ROTMAX
+        DAD     D
+        MOV     D,M             ; D = max states
+
+        LDA     PCROT
+        INR     A
+        CMP     D
+        JC      ROT1
+        XRA     A               ; Wrap to 0
+ROT1:
+        STA     ROTNEW          ; Save new rotation
+
+        ; Test collision at new rotation
+        LDA     PCTYPE
+        PUSH    PSW
+        LDA     ROTNEW
+        MOV     B,A             ; B = new rotation
+        LDA     PCCOL
+        MOV     C,A
+        LDA     PCROW
+        MOV     D,A
+        POP     PSW             ; A = type
+        CALL    COLLIDE
+        JNZ     ROTBLK
+
+        ; Success: update rotation
+        LDA     ROTNEW
+        STA     PCROT
+        CALL    DRAWPC
+        XRA     A
+        RET
+
+ROTBLK:
+        CALL    DRAWPC
+        MVI     A,1
+        ORA     A
+        RET
+
+ROTNEW: DB      0               ; Candidate rotation
+
+;--------------------------------------------------------------
+; HARDDROP - Instant drop to lowest position
+;
+; Adds 2 points per row dropped.
+; Exit:   NZ always (piece needs locking)
+; Uses:   All registers
+;--------------------------------------------------------------
+HARDDROP:
+        MVI     A,1
+        STA     DRPFLG
+        XRA     A
+        STA     HDCNT
+
+HDLOOP:
+        CALL    MOVEDN
+        JNZ     HDDONE          ; Can't move: done
+        LDA     HDCNT
+        INR     A
+        STA     HDCNT
+        JMP     HDLOOP
+
+HDDONE:
+        ; SCORE += HDCNT * 2
+        LDA     HDCNT
+        ADD     A               ; * 2
+        MOV     E,A
+        MVI     D,0
+        LHLD    SCORE
+        DAD     D
+        SHLD    SCORE
+
+        XRA     A
+        STA     DRPFLG
+        MVI     A,1
+        ORA     A
+        RET
+
+HDCNT:  DB      0
+
+;--------------------------------------------------------------
+; LOCKPC - Lock piece into the board array
+;
+; Writes PCCLR into BOARD at each cell position.
+; Uses: All registers
+;--------------------------------------------------------------
+LOCKPC:
+        LDA     PCTYPE
+        MOV     B,A
+        LDA     PCROT
+        CALL    GETROT          ; HL = rotation data
+
+        MVI     E,4
+LOCK1:
+        PUSH    D
+        PUSH    H
+
+        MOV     B,M             ; dc
+        INX     H
+        MOV     C,M             ; dr
+
+        ; col = PCCOL + dc
+        LDA     PCCOL
+        ADD     B
+        MOV     B,A
+        CPI     10
+        JNC     LOCK2           ; Out of range
+
+        ; row = PCROW + dr
+        LDA     PCROW
+        ADD     C
+        MOV     C,A
+        CPI     20
+        JNC     LOCK2
+
+        ; board[row*10 + col] = color
+        MOV     A,C
+        CALL    ROWX10
+        ADD     B
+        MOV     E,A
+        MVI     D,0
+        PUSH    H
+        LXI     H,BOARD
+        DAD     D
+        LDA     PCCLR
+        MOV     M,A
+        POP     H
+
+LOCK2:
+        POP     H
+        INX     H
+        INX     H
+        POP     D
+        DCR     E
+        JNZ     LOCK1
+        RET
+
+;--------------------------------------------------------------
+; CLRLINE - Check and clear completed lines
+;
+; Scans rows 19..0. Full rows are removed, rows above
+; shift down.
+;
+; Exit:   A = number of lines cleared (0-4)
+; Uses:   All registers
+;--------------------------------------------------------------
+CLRLINE:
+        XRA     A
+        STA     LNCOUNT
+
+        MVI     C,19            ; Start at bottom
+CLSCAN:
+        CALL    CHKROW          ; Z = full
+        JNZ     CLNEXT
+
+        ; Row full: shift above down, re-check
+        CALL    SHFROW
+        LDA     LNCOUNT
+        INR     A
+        STA     LNCOUNT
+        JMP     CLSCAN          ; Re-check same row
+
+CLNEXT:
+        DCR     C
+        JP      CLSCAN          ; Continue if >= 0
+
+        LDA     LNCOUNT
+        RET
+
+;--------------------------------------------------------------
+; CHKROW - Check if row C is completely filled
+;
+; Entry:  C = row (0-19)
+; Exit:   Z = full, NZ = has empty cell
+; Uses:   A, HL, DE, B (C preserved)
+;--------------------------------------------------------------
+CHKROW:
+        MOV     A,C
+        CALL    ROWX10
+        MOV     E,A
+        MVI     D,0
+        LXI     H,BOARD
+        DAD     D
+
+        MVI     B,10
+CHK1:
+        MOV     A,M
+        ORA     A
+        JZ      CHKNF           ; Empty cell: row not full
+        INX     H
+        DCR     B
+        JNZ     CHK1
+        XRA     A               ; All non-zero: full, Z set
+        RET
+
+CHKNF:
+        INR     A               ; A was 0, now 1: NZ set
+        RET
+
+;--------------------------------------------------------------
+; SHFROW - Remove row C, shift rows above down
+;
+; Entry:  C = row to remove (0-19)
+; Uses:   A, HL, DE, B (C preserved)
+;--------------------------------------------------------------
+SHFROW:
+        PUSH    B               ; Save C (row)
+        MOV     B,C             ; B = row to clear
+SHF1:
+        MOV     A,B
+        ORA     A
+        JZ      SHF2            ; Row 0: clear it
+
+        ; dest = &BOARD[B*10]
+        PUSH    B
+        MOV     A,B
+        CALL    ROWADDR
+        PUSH    H
+        POP     D               ; DE = dest
+
+        ; src = &BOARD[(B-1)*10]
+        POP     B
+        PUSH    B
+        DCR     B
+        MOV     A,B
+        PUSH    D               ; Save dest addr
+        CALL    ROWADDR         ; HL = src (clobbers DE)
+        POP     D               ; Restore dest addr
+
+        ; Copy 10 bytes HL -> DE
+        MVI     C,10
+SHFCPY:
+        MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     SHFCPY
+
+        POP     B
+        DCR     B
+        JMP     SHF1
+
+SHF2:
+        ; Clear top row
+        XRA     A
+        CALL    ROWADDR
+        MVI     B,10
+SHF3:
+        MVI     M,0
+        INX     H
+        DCR     B
+        JNZ     SHF3
+
+        POP     B               ; Restore original C
+        RET
+
+;--------------------------------------------------------------
+; ROWADDR - Compute &BOARD[A * 10]
+;
+; Entry:  A = row (0-19)
+; Exit:   HL = address in BOARD
+; Uses:   A, HL, DE
+;--------------------------------------------------------------
+ROWADDR:
+        CALL    ROWX10          ; A = row*10
+        MOV     E,A
+        MVI     D,0
+        LXI     H,BOARD
+        DAD     D
+        RET
+
+;--------------------------------------------------------------
+; ADDSCORE - Add points for cleared lines
+;
+; Entry:  A = lines cleared (1-4)
+; Exit:   SCORE updated
+; Uses:   All registers
+;--------------------------------------------------------------
+ADDSCORE:
+        ORA     A
+        RZ                      ; 0 lines: nothing
+
+        ; Base pts: SCRTBL[(lines-1)*2]
+        DCR     A
+        ADD     A               ; word index
+        MOV     E,A
+        MVI     D,0
+        LXI     H,SCRTBL
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M             ; DE = base points
+
+        ; Multiply by (level + 1)
+        LDA     LEVEL
+        INR     A
+        MOV     B,A             ; B = multiplier
+        LXI     H,0
+ASCMUL:
+        DAD     D
+        DCR     B
+        JNZ     ASCMUL
+
+        ; Add to 16-bit score
+        XCHG
+        LHLD    SCORE
+        DAD     D
+        SHLD    SCORE
+        RET
+
+;--------------------------------------------------------------
+; UPDLVL - Update level from total lines
+;
+; Entry:  A = lines just cleared (1-4)
+; Exit:   LINES, LEVEL, GRAVMAX updated
+; Uses:   All registers
+;--------------------------------------------------------------
+UPDLVL:
+        ORA     A
+        RZ
+
+        ; Add to total lines (16-bit)
+        MOV     E,A
+        MVI     D,0
+        LHLD    LINES
+        DAD     D
+        SHLD    LINES
+
+        ; new_level = total_lines / 10
+        ; Use low byte if H=0, else cap at 255
+        MOV     A,H
+        ORA     A               ; Test high byte only
+        MOV     A,L             ; Load low byte
+        JZ      UL1             ; H=0: use L as-is
+        MVI     A,255           ; H!=0: cap at 255
+UL1:
+        ; Divide by 10
+        MVI     B,0
+UL2:
+        CPI     10
+        JC      UL3
+        SUI     10
+        INR     B
+        JMP     UL2
+UL3:
+        ; B = new level
+        LDA     LEVEL
+        CMP     B
+        RNC                     ; Already at/above
+
+        MOV     A,B
+        STA     LEVEL
+
+        ; Update gravity from SPDTBL
+        CPI     10
+        JC      UL4
+        MVI     A,9             ; Cap at index 9
+UL4:
+        MOV     E,A
+        MVI     D,0
+        LXI     H,SPDTBL
+        DAD     D
+        MOV     A,M
+        STA     GRAVMAX
+        RET
+
+        END
+

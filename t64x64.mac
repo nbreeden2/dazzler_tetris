@@ -1,0 +1,904 @@
+        TITLE   'Cromemco Dazzler 64x64 Library Test Program'
+;-------------------------------------------------------------------
+; T64X64.ASM - Test Program for D64X64 Graphics Library
+;
+; Version: 1.0
+; Date: 2026-02-13 02:00 MST
+;
+; Comprehensive test suite for D64X64.MAC library functions.
+; Tests each drawing function with 10+ tests including:
+; - Cross-quadrant drawing
+; - Off-screen clipping
+; - Various sizes and positions
+;
+; Target: CP/M 2.2+, Intel 8080, Cromemco Dazzler
+; Assembler: Microsoft M80
+; Linker: Microsoft L80
+;
+; To assemble and link with library:
+;   M80 =T64X64.MAC
+;   M80 =D64X64.MAC
+;   L80 T64X64,D64X64,T64X64/N/E
+;
+; To run under CP/M:
+;   T64X64
+;
+; Revision History:
+;   1.0 - Initial test suite
+;-------------------------------------------------------------------
+
+;-------------------------------------------------------------------
+; External library functions from D64X64.MAC
+;-------------------------------------------------------------------
+        EXTRN   DZLINIT,DZLCLOSE,DZLCLR,DZLPSET
+        EXTRN   DZLHLIN,DZLVLIN,DZLLINE
+        EXTRN   DZLCIRC,DZLFCIRC
+        EXTRN   DZLRECT,DZLFRECT
+
+;-------------------------------------------------------------------
+; CP/M equates
+;-------------------------------------------------------------------
+WBOOT   EQU     0000H           ; Warm boot vector
+BDOS    EQU     0005H           ; BDOS entry point
+CONOUT  EQU     02H             ; Console output function
+PSTRING EQU     09H             ; Print string function
+
+; Dazzler configuration
+DZLBASE EQU     0F000H          ; Frame buffer at F000H
+
+; Define the 16 color palette values
+BLACK   EQU     0       ; BLACK
+DRED    EQU     1       ; DIM RED
+DGREEN  EQU     2       ; DIM GREEN
+DYELLOW EQU     3       ; DIM YELLOW
+DBLUE   EQU     4       ; DIM BLUE
+DPURPLE EQU     5       ; DIM PURPLE
+DCYAN   EQU     6       ; DIM CYAN
+GREY    EQU     7       ; GREY
+BRED    EQU     9       ; BRIGHT RED
+BGREEN  EQU     10      ; BRIGHT GREEN
+BYELLOW EQU     11      ; BRIGHT YELLOW
+BBLUE   EQU     12      ; BRIGHT BLUE
+BPURPLE EQU     13      ; BRIGHT PURPLE
+BCYAN   EQU     14      ; BRIGHT CYAN
+WHITE   EQU     15      ; BRIGHT WHITE
+
+;-------------------------------------------------------------------
+; Program start
+;-------------------------------------------------------------------
+        ORG     100H            ; CP/M TPA start
+
+START:
+        ; Print startup message
+        LXI     D,MSGSTART
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        ; Initialize Dazzler hardware
+        LXI     H,DZLBASE
+        CALL    DZLINIT
+
+        ; Test DZLHLIN - Horizontal Lines
+        CALL    TESTHLIN
+
+        ; Test DZLVLIN - Vertical Lines
+        CALL    TESTVLIN
+
+        ; Test DZLLINE - Arbitrary Angle Lines
+        CALL    TESTLINE
+
+        ; Test DZLCIRC - Circle Outlines
+        CALL    TESTCIRC
+
+        ; Test DZLFCIRC - Filled Circles
+        CALL    TESTFCIRC
+
+        ; Test DZLRECT - Rectangle Outlines
+        CALL    TESTRECT
+
+        ; Test DZLFRECT - Filled Rectangles
+        CALL    TESTFRECT
+
+        ; All tests complete
+        LXI     D,MSGDONE
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        CALL    WAITKEY
+
+        ; Disable Dazzler
+        CALL    DZLCLOSE
+
+        ; Return to CP/M
+        JMP     WBOOT
+
+;-------------------------------------------------------------------
+; TESTHLIN - Test horizontal line drawing (DZLHLIN)
+;
+; 12 tests: 6 cross-quad, 6 off-screen
+;-------------------------------------------------------------------
+TESTHLIN:
+        LXI     D,MSGHLIN
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        MVI     A,BLACK
+        CALL    DZLCLR
+
+        ; Test 1: Line in Q0
+        MVI     B,5
+        MVI     C,10
+        MVI     D,25
+        MVI     A,BGREEN
+        CALL    DZLHLIN
+
+        ; Test 2: Line crossing Q0->Q1
+        MVI     B,10
+        MVI     C,15
+        MVI     D,50
+        MVI     A,BRED
+        CALL    DZLHLIN
+
+        ; Test 3: Line in Q1
+        MVI     B,35
+        MVI     C,20
+        MVI     D,60
+        MVI     A,BBLUE
+        CALL    DZLHLIN
+
+        ; Test 4: Line crossing Q2->Q3
+        MVI     B,5
+        MVI     C,45
+        MVI     D,58
+        MVI     A,BYELLOW
+        CALL    DZLHLIN
+
+        ; Test 5: Full width at Y=32 (quad boundary)
+        MVI     B,0
+        MVI     C,32
+        MVI     D,63
+        MVI     A,WHITE
+        CALL    DZLHLIN
+
+        ; Test 6: Line in Q3
+        MVI     B,40
+        MVI     C,50
+        MVI     D,60
+        MVI     A,BCYAN
+        CALL    DZLHLIN
+
+        ; Test 7: Off-screen left (clips)
+        MVI     B,250           ; -6 as unsigned
+        MVI     C,5
+        MVI     D,20
+        MVI     A,BPURPLE
+        CALL    DZLHLIN
+
+        ; Test 8: Off-screen right (clips)
+        MVI     B,50
+        MVI     C,8
+        MVI     D,70
+        MVI     A,DPURPLE
+        CALL    DZLHLIN
+
+        ; Test 9: Off-screen both sides
+        MVI     B,250
+        MVI     C,55
+        MVI     D,80
+        MVI     A,DGREEN
+        CALL    DZLHLIN
+
+        ; Test 10: Line at Y=0 (top edge)
+        MVI     B,10
+        MVI     C,0
+        MVI     D,50
+        MVI     A,DYELLOW
+        CALL    DZLHLIN
+
+        ; Test 11: Line at Y=63 (bottom edge)
+        MVI     B,15
+        MVI     C,63
+        MVI     D,48
+        MVI     A,DRED
+        CALL    DZLHLIN
+
+        ; Test 12: Very short line
+        MVI     B,30
+        MVI     C,30
+        MVI     D,33
+        MVI     A,WHITE
+        CALL    DZLHLIN
+
+        CALL    WAITKEY
+        RET
+
+;-------------------------------------------------------------------
+; TESTVLIN - Test vertical line drawing (DZLVLIN)
+;
+; 12 tests: 6 cross-quad, 6 off-screen
+;-------------------------------------------------------------------
+TESTVLIN:
+        LXI     D,MSGVLIN
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        MVI     A,BLACK
+        CALL    DZLCLR
+
+        ; Test 1: Line in Q0
+        MVI     B,10
+        MVI     C,5
+        MVI     D,25
+        MVI     A,BGREEN
+        CALL    DZLVLIN
+
+        ; Test 2: Line crossing Q0->Q2
+        MVI     B,15
+        MVI     C,10
+        MVI     D,50
+        MVI     A,BRED
+        CALL    DZLVLIN
+
+        ; Test 3: Line in Q1
+        MVI     B,45
+        MVI     C,8
+        MVI     D,28
+        MVI     A,BBLUE
+        CALL    DZLVLIN
+
+        ; Test 4: Line crossing Q1->Q3
+        MVI     B,50
+        MVI     C,15
+        MVI     D,55
+        MVI     A,BYELLOW
+        CALL    DZLVLIN
+
+        ; Test 5: Full height at X=32 (quad boundary)
+        MVI     B,32
+        MVI     C,0
+        MVI     D,63
+        MVI     A,WHITE
+        CALL    DZLVLIN
+
+        ; Test 6: Line in Q3
+        MVI     B,55
+        MVI     C,40
+        MVI     D,60
+        MVI     A,BCYAN
+        CALL    DZLVLIN
+
+        ; Test 7: Off-screen top (clips)
+        MVI     B,20
+        MVI     C,250           ; -6 as unsigned
+        MVI     D,20
+        MVI     A,BPURPLE
+        CALL    DZLVLIN
+
+        ; Test 8: Off-screen bottom (clips)
+        MVI     B,25
+        MVI     C,50
+        MVI     D,70
+        MVI     A,DPURPLE
+        CALL    DZLVLIN
+
+        ; Test 9: Off-screen both ends
+        MVI     B,38
+        MVI     C,250
+        MVI     D,80
+        MVI     A,DGREEN
+        CALL    DZLVLIN
+
+        ; Test 10: Line at X=0 (left edge)
+        MVI     B,0
+        MVI     C,10
+        MVI     D,50
+        MVI     A,DYELLOW
+        CALL    DZLVLIN
+
+        ; Test 11: Line at X=63 (right edge)
+        MVI     B,63
+        MVI     C,15
+        MVI     D,48
+        MVI     A,DRED
+        CALL    DZLVLIN
+
+        ; Test 12: Very short line
+        MVI     B,40
+        MVI     C,30
+        MVI     D,33
+        MVI     A,WHITE
+        CALL    DZLVLIN
+
+        CALL    WAITKEY
+        RET
+
+;-------------------------------------------------------------------
+; TESTLINE - Test arbitrary angle lines (DZLLINE)
+;
+; 12 tests: 6 cross-quad, 6 off-screen
+;-------------------------------------------------------------------
+TESTLINE:
+        LXI     D,MSGLINE
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        MVI     A,BLACK
+        CALL    DZLCLR
+
+        ; Test 1: Diagonal Q0
+        MVI     B,5
+        MVI     C,5
+        MVI     D,28
+        MVI     E,28
+        MVI     A,BGREEN
+        CALL    DZLLINE
+
+        ; Test 2: Diagonal crossing all quads
+        MVI     B,8
+        MVI     C,8
+        MVI     D,56
+        MVI     E,56
+        MVI     A,BRED
+        CALL    DZLLINE
+
+        ; Test 3: Steep slope Q0->Q2
+        MVI     B,15
+        MVI     C,5
+        MVI     D,20
+        MVI     E,58
+        MVI     A,BBLUE
+        CALL    DZLLINE
+
+        ; Test 4: Shallow slope Q1->Q3
+        MVI     B,35
+        MVI     C,10
+        MVI     D,58
+        MVI     E,55
+        MVI     A,BYELLOW
+        CALL    DZLLINE
+
+        ; Test 5: Reverse diagonal (top-right to bottom-left)
+        MVI     B,55
+        MVI     C,8
+        MVI     D,8
+        MVI     E,55
+        MVI     A,BCYAN
+        CALL    DZLLINE
+
+        ; Test 6: Cross at center
+        MVI     B,25
+        MVI     C,25
+        MVI     D,38
+        MVI     E,38
+        MVI     A,WHITE
+        CALL    DZLLINE
+
+        ; Test 7: Off-screen start point
+        MVI     B,250           ; -6
+        MVI     C,250           ; -6
+        MVI     D,15
+        MVI     E,15
+        MVI     A,BPURPLE
+        CALL    DZLLINE
+
+        ; Test 8: Off-screen end point
+        MVI     B,48
+        MVI     C,48
+        MVI     D,75
+        MVI     E,75
+        MVI     A,DPURPLE
+        CALL    DZLLINE
+
+        ; Test 9: Both points off-screen (passes through)
+        MVI     B,250
+        MVI     C,30
+        MVI     D,80
+        MVI     E,30
+        MVI     A,DGREEN
+        CALL    DZLLINE
+
+        ; Test 10: Nearly horizontal
+        MVI     B,10
+        MVI     C,40
+        MVI     D,50
+        MVI     E,42
+        MVI     A,DYELLOW
+        CALL    DZLLINE
+
+        ; Test 11: Nearly vertical
+        MVI     B,42
+        MVI     C,20
+        MVI     D,44
+        MVI     E,50
+        MVI     A,DRED
+        CALL    DZLLINE
+
+        ; Test 12: Single pixel line
+        MVI     B,32
+        MVI     C,32
+        MVI     D,32
+        MVI     E,32
+        MVI     A,WHITE
+        CALL    DZLLINE
+
+        CALL    WAITKEY
+        RET
+
+;-------------------------------------------------------------------
+; TESTCIRC - Test circle outlines (DZLCIRC)
+;
+; 12 tests: 6 cross-quad, 6 off-screen
+;-------------------------------------------------------------------
+TESTCIRC:
+        LXI     D,MSGCIRC
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        MVI     A,BLACK
+        CALL    DZLCLR
+
+        ; Test 1: Small circle in Q0
+        MVI     B,15
+        MVI     C,15
+        MVI     D,8
+        MVI     A,BGREEN
+        CALL    DZLCIRC
+
+        ; Test 2: Circle crossing Q0->Q1->Q2->Q3
+        MVI     B,32
+        MVI     C,32
+        MVI     D,20
+        MVI     A,BRED
+        CALL    DZLCIRC
+
+        ; Test 3: Circle in Q1
+        MVI     B,48
+        MVI     C,16
+        MVI     D,10
+        MVI     A,BBLUE
+        CALL    DZLCIRC
+
+        ; Test 4: Circle in Q2
+        MVI     B,16
+        MVI     C,48
+        MVI     D,9
+        MVI     A,BYELLOW
+        CALL    DZLCIRC
+
+        ; Test 5: Circle in Q3
+        MVI     B,50
+        MVI     C,50
+        MVI     D,8
+        MVI     A,BCYAN
+        CALL    DZLCIRC
+
+        ; Test 6: Large circle centered
+        MVI     B,32
+        MVI     C,32
+        MVI     D,28
+        MVI     A,WHITE
+        CALL    DZLCIRC
+
+        ; Test 7: Circle off-screen top-left
+        MVI     B,8
+        MVI     C,8
+        MVI     D,15
+        MVI     A,BPURPLE
+        CALL    DZLCIRC
+
+        ; Test 8: Circle off-screen bottom-right
+        MVI     B,56
+        MVI     C,56
+        MVI     D,15
+        MVI     A,DPURPLE
+        CALL    DZLCIRC
+
+        ; Test 9: Circle mostly off-screen left
+        MVI     B,5
+        MVI     C,32
+        MVI     D,12
+        MVI     A,DGREEN
+        CALL    DZLCIRC
+
+        ; Test 10: Circle mostly off-screen right
+        MVI     B,58
+        MVI     C,32
+        MVI     D,12
+        MVI     A,DYELLOW
+        CALL    DZLCIRC
+
+        ; Test 11: Tiny circle (radius 2)
+        MVI     B,10
+        MVI     C,10
+        MVI     D,2
+        MVI     A,DRED
+        CALL    DZLCIRC
+
+        ; Test 12: Circle at exact center
+        MVI     B,32
+        MVI     C,32
+        MVI     D,5
+        MVI     A,WHITE
+        CALL    DZLCIRC
+
+        CALL    WAITKEY
+        RET
+
+;-------------------------------------------------------------------
+; TESTFCIRC - Test filled circles (DZLFCIRC)
+;
+; 12 tests: 6 cross-quad, 6 off-screen
+;-------------------------------------------------------------------
+TESTFCIRC:
+        LXI     D,MSGFCIRC
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        MVI     A,BLACK
+        CALL    DZLCLR
+
+        ; Test 1: Small filled circle in Q0
+        MVI     B,12
+        MVI     C,12
+        MVI     D,6
+        MVI     A,BGREEN
+        CALL    DZLFCIRC
+
+        ; Test 2: Filled circle crossing all quads
+        MVI     B,32
+        MVI     C,32
+        MVI     D,18
+        MVI     A,BRED
+        CALL    DZLFCIRC
+
+        ; Test 3: Filled circle in Q1
+        MVI     B,48
+        MVI     C,15
+        MVI     D,8
+        MVI     A,BBLUE
+        CALL    DZLFCIRC
+
+        ; Test 4: Filled circle in Q2
+        MVI     B,15
+        MVI     C,48
+        MVI     D,7
+        MVI     A,BYELLOW
+        CALL    DZLFCIRC
+
+        ; Test 5: Filled circle in Q3
+        MVI     B,52
+        MVI     C,52
+        MVI     D,6
+        MVI     A,BCYAN
+        CALL    DZLFCIRC
+
+        ; Test 6: Large filled circle
+        MVI     B,32
+        MVI     C,32
+        MVI     D,25
+        MVI     A,GREY
+        CALL    DZLFCIRC
+
+        ; Test 7: Filled circle off-screen top-left
+        MVI     B,6
+        MVI     C,6
+        MVI     D,10
+        MVI     A,BPURPLE
+        CALL    DZLFCIRC
+
+        ; Test 8: Filled circle off-screen bottom-right
+        MVI     B,58
+        MVI     C,58
+        MVI     D,10
+        MVI     A,DPURPLE
+        CALL    DZLFCIRC
+
+        ; Test 9: Filled circle mostly off left
+        MVI     B,4
+        MVI     C,30
+        MVI     D,8
+        MVI     A,DGREEN
+        CALL    DZLFCIRC
+
+        ; Test 10: Filled circle mostly off right
+        MVI     B,60
+        MVI     C,35
+        MVI     D,8
+        MVI     A,DYELLOW
+        CALL    DZLFCIRC
+
+        ; Test 11: Tiny filled circle
+        MVI     B,8
+        MVI     C,8
+        MVI     D,3
+        MVI     A,WHITE
+        CALL    DZLFCIRC
+
+        ; Test 12: Medium filled circle at center
+        MVI     B,32
+        MVI     C,32
+        MVI     D,8
+        MVI     A,DRED
+        CALL    DZLFCIRC
+
+        CALL    WAITKEY
+        RET
+
+;-------------------------------------------------------------------
+; TESTRECT - Test rectangle outlines (DZLRECT)
+;
+; 12 tests: 6 cross-quad, 6 off-screen
+;-------------------------------------------------------------------
+TESTRECT:
+        LXI     D,MSGRECT
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        MVI     A,BLACK
+        CALL    DZLCLR
+
+        ; Test 1: Small rect in Q0
+        MVI     B,5
+        MVI     C,5
+        MVI     D,25
+        MVI     E,25
+        MVI     A,BGREEN
+        CALL    DZLRECT
+
+        ; Test 2: Rect crossing all quads
+        MVI     B,20
+        MVI     C,20
+        MVI     D,44
+        MVI     E,44
+        MVI     A,BRED
+        CALL    DZLRECT
+
+        ; Test 3: Rect in Q1
+        MVI     B,35
+        MVI     C,8
+        MVI     D,58
+        MVI     E,28
+        MVI     A,BBLUE
+        CALL    DZLRECT
+
+        ; Test 4: Rect in Q2
+        MVI     B,5
+        MVI     C,35
+        MVI     D,28
+        MVI     E,58
+        MVI     A,BYELLOW
+        CALL    DZLRECT
+
+        ; Test 5: Rect in Q3
+        MVI     B,38
+        MVI     C,38
+        MVI     D,60
+        MVI     E,60
+        MVI     A,BCYAN
+        CALL    DZLRECT
+
+        ; Test 6: Full screen border
+        MVI     B,0
+        MVI     C,0
+        MVI     D,63
+        MVI     E,63
+        MVI     A,WHITE
+        CALL    DZLRECT
+
+        ; Test 7: Rect off-screen top-left
+        MVI     B,250           ; -6
+        MVI     C,250           ; -6
+        MVI     D,10
+        MVI     E,10
+        MVI     A,BPURPLE
+        CALL    DZLRECT
+
+        ; Test 8: Rect off-screen bottom-right
+        MVI     B,50
+        MVI     C,50
+        MVI     D,75
+        MVI     E,75
+        MVI     A,DPURPLE
+        CALL    DZLRECT
+
+        ; Test 9: Rect off-screen left side
+        MVI     B,248           ; -8
+        MVI     C,20
+        MVI     D,8
+        MVI     E,40
+        MVI     A,DGREEN
+        CALL    DZLRECT
+
+        ; Test 10: Rect off-screen top
+        MVI     B,25
+        MVI     C,250
+        MVI     D,40
+        MVI     E,10
+        MVI     A,DYELLOW
+        CALL    DZLRECT
+
+        ; Test 11: Thin vertical rect
+        MVI     B,30
+        MVI     C,10
+        MVI     D,32
+        MVI     E,50
+        MVI     A,DRED
+        CALL    DZLRECT
+
+        ; Test 12: Thin horizontal rect
+        MVI     B,10
+        MVI     C,30
+        MVI     D,50
+        MVI     E,32
+        MVI     A,DCYAN
+        CALL    DZLRECT
+
+        CALL    WAITKEY
+        RET
+
+;-------------------------------------------------------------------
+; TESTFRECT - Test filled rectangles (DZLFRECT)
+;
+; 12 tests: 6 cross-quad, 6 off-screen
+;-------------------------------------------------------------------
+TESTFRECT:
+        LXI     D,MSGFRECT
+        MVI     C,PSTRING
+        CALL    BDOS
+
+        MVI     A,BLACK
+        CALL    DZLCLR
+
+        ; Test 1: Small filled rect in Q0
+        MVI     B,5
+        MVI     C,5
+        MVI     D,22
+        MVI     E,22
+        MVI     A,BGREEN
+        CALL    DZLFRECT
+
+        ; Test 2: Filled rect crossing all quads
+        MVI     B,25
+        MVI     C,25
+        MVI     D,38
+        MVI     E,38
+        MVI     A,BRED
+        CALL    DZLFRECT
+
+        ; Test 3: Filled rect in Q1
+        MVI     B,40
+        MVI     C,8
+        MVI     D,58
+        MVI     E,25
+        MVI     A,BBLUE
+        CALL    DZLFRECT
+
+        ; Test 4: Filled rect in Q2
+        MVI     B,8
+        MVI     C,40
+        MVI     D,25
+        MVI     E,58
+        MVI     A,BYELLOW
+        CALL    DZLFRECT
+
+        ; Test 5: Filled rect in Q3
+        MVI     B,42
+        MVI     C,42
+        MVI     D,60
+        MVI     E,60
+        MVI     A,BCYAN
+        CALL    DZLFRECT
+
+        ; Test 6: Large filled rect
+        MVI     B,10
+        MVI     C,10
+        MVI     D,53
+        MVI     E,53
+        MVI     A,GREY
+        CALL    DZLFRECT
+
+        ; Test 7: Filled rect off-screen top-left
+        MVI     B,252           ; -4
+        MVI     C,252           ; -4
+        MVI     D,8
+        MVI     E,8
+        MVI     A,BPURPLE
+        CALL    DZLFRECT
+
+        ; Test 8: Filled rect off-screen bottom-right
+        MVI     B,55
+        MVI     C,55
+        MVI     D,70
+        MVI     E,70
+        MVI     A,DPURPLE
+        CALL    DZLFRECT
+
+        ; Test 9: Filled rect off left
+        MVI     B,250
+        MVI     C,25
+        MVI     D,10
+        MVI     E,38
+        MVI     A,DGREEN
+        CALL    DZLFRECT
+
+        ; Test 10: Filled rect off bottom
+        MVI     B,20
+        MVI     C,58
+        MVI     D,35
+        MVI     E,70
+        MVI     A,DYELLOW
+        CALL    DZLFRECT
+
+        ; Test 11: Thin filled rect (bar)
+        MVI     B,28
+        MVI     C,15
+        MVI     D,35
+        MVI     E,48
+        MVI     A,WHITE
+        CALL    DZLFRECT
+
+        ; Test 12: Small filled square
+        MVI     B,48
+        MVI     C,18
+        MVI     D,52
+        MVI     E,22
+        MVI     A,DRED
+        CALL    DZLFRECT
+
+        CALL    WAITKEY
+        RET
+
+;-------------------------------------------------------------------
+; WAITKEY - Wait for user to press a key
+;-------------------------------------------------------------------
+WAITKEY:
+        LXI     D,MSGKEY
+        MVI     C,PSTRING
+        CALL    BDOS
+        MVI     C,1             ; Console input
+        CALL    BDOS
+        RET
+
+;-------------------------------------------------------------------
+; Messages
+;-------------------------------------------------------------------
+MSGSTART:
+        DB      'T64X64 - Dazzler 64x64 Library Test',13,10
+        DB      'Testing D64X64.MAC functions',13,10,10,'$'
+
+MSGHLIN:
+        DB      13,10,'Testing DZLHLIN (Horizontal Lines)',13,10
+        DB      '12 tests: cross-quad + off-screen',13,10,'$'
+
+MSGVLIN:
+        DB      13,10,'Testing DZLVLIN (Vertical Lines)',13,10
+        DB      '12 tests: cross-quad + off-screen',13,10,'$'
+
+MSGLINE:
+        DB      13,10,'Testing DZLLINE (Arbitrary Lines)',13,10
+        DB      '12 tests: cross-quad + off-screen',13,10,'$'
+
+MSGCIRC:
+        DB      13,10,'Testing DZLCIRC (Circle Outlines)',13,10
+        DB      '12 tests: cross-quad + off-screen',13,10,'$'
+
+MSGFCIRC:
+        DB      13,10,'Testing DZLFCIRC (Filled Circles)',13,10
+        DB      '12 tests: cross-quad + off-screen',13,10,'$'
+
+MSGRECT:
+        DB      13,10,'Testing DZLRECT (Rect Outlines)',13,10
+        DB      '12 tests: cross-quad + off-screen',13,10,'$'
+
+MSGFRECT:
+        DB      13,10,'Testing DZLFRECT (Filled Rects)',13,10
+        DB      '12 tests: cross-quad + off-screen',13,10,'$'
+
+MSGDONE:
+        DB      13,10,10,'All tests complete!',13,10,'$'
+
+MSGKEY:
+        DB      'Press any key to continue...',13,10,'$'
+
+        END     START
+

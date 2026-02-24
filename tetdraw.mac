@@ -1,0 +1,464 @@
+        TITLE   'Tetris Rendering Functions'
+;--------------------------------------------------------------
+; TETDRAW.MAC - All Dazzler drawing operations for Tetris
+;
+; Part of the Tetris for Cromemco Dazzler project.
+; Version: 1.00
+; Handles playfield border, cell drawing, piece rendering,
+; next-piece preview, board redraw, and level indicator.
+;
+; Assembler: Microsoft M80
+;--------------------------------------------------------------
+
+;--------------------------------------------------------------
+; Public and external declarations
+;--------------------------------------------------------------
+        PUBLIC  DRAWBDR,DRWBOX
+        PUBLIC  DRAWPC,ERSPC
+        PUBLIC  DRWNXT,ERSNXT
+        PUBLIC  REDRAW,DRAWLVL
+
+        EXTRN   DZLHLIN,DZLVLIN,DZLFRECT
+        EXTRN   GETROT
+        EXTRN   BOARD
+        EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
+        EXTRN   PCNEXT,ROTIDX,PCTBL
+
+; Color equates
+BLACK   EQU     0
+GREY    EQU     7
+BCYAN   EQU     14
+
+; Screen layout constants
+PFORGX  EQU     1       ; Playfield origin pixel X
+PFORGY  EQU     3       ; Playfield origin pixel Y
+CELLSZ  EQU     3       ; Pixels per cell
+PFCOLS  EQU     10      ; Playfield columns
+PFROWS  EQU     20      ; Playfield rows
+
+; Preview box position
+NXBOXX  EQU     40      ; Next box left edge
+NXBOXY  EQU     2       ; Next box top edge
+NXBOXR  EQU     55      ; Next box right edge
+NXBOXB  EQU     17      ; Next box bottom edge
+; Preview piece origin (inside box)
+NXORGX  EQU     42      ; Preview piece pixel X origin
+NXORGY  EQU     5       ; Preview piece pixel Y origin
+
+; Level bar position
+LVLX    EQU     48      ; Level bar X start
+LVLXR   EQU     52      ; Level bar X end
+LVLBOT  EQU     62      ; Level bar bottom Y
+LVLTOP  EQU     24      ; Level bar top limit Y
+
+;--------------------------------------------------------------
+; DRAWBDR - Draw playfield border
+;
+; Left wall X=0, right wall X=31, top Y=2, bottom Y=63
+; Color: GREY
+; Uses: All registers
+;--------------------------------------------------------------
+DRAWBDR:
+        ; Top border: horizontal line Y=2, X=0..31
+        MVI     B,0
+        MVI     C,2
+        MVI     D,31
+        MVI     A,GREY
+        CALL    DZLHLIN
+
+        ; Bottom border: horizontal line Y=63, X=0..31
+        MVI     B,0
+        MVI     C,63
+        MVI     D,31
+        MVI     A,GREY
+        CALL    DZLHLIN
+
+        ; Left border: vertical line X=0, Y=2..63
+        MVI     B,0
+        MVI     C,2
+        MVI     D,63
+        MVI     A,GREY
+        CALL    DZLVLIN
+
+        ; Right border: vertical line X=31, Y=2..63
+        MVI     B,31
+        MVI     C,2
+        MVI     D,63
+        MVI     A,GREY
+        CALL    DZLVLIN
+
+        RET
+
+;--------------------------------------------------------------
+; DRWBOX - Draw next-piece preview box border
+;
+; Box at X=40..55, Y=2..17, GREY outline
+; Uses: All registers
+;--------------------------------------------------------------
+DRWBOX:
+        ; Top
+        MVI     B,NXBOXX
+        MVI     C,NXBOXY
+        MVI     D,NXBOXR
+        MVI     A,GREY
+        CALL    DZLHLIN
+
+        ; Bottom
+        MVI     B,NXBOXX
+        MVI     C,NXBOXB
+        MVI     D,NXBOXR
+        MVI     A,GREY
+        CALL    DZLHLIN
+
+        ; Left
+        MVI     B,NXBOXX
+        MVI     C,NXBOXY
+        MVI     D,NXBOXB
+        MVI     A,GREY
+        CALL    DZLVLIN
+
+        ; Right
+        MVI     B,NXBOXR
+        MVI     C,NXBOXY
+        MVI     D,NXBOXB
+        MVI     A,GREY
+        CALL    DZLVLIN
+
+        RET
+
+;--------------------------------------------------------------
+; DRAWCEL - Draw one cell at grid (col, row) in color
+;
+; Entry:  B = column (0-9)
+;         C = row (0-19)
+;         A = color (0-15)
+; Exit:   None
+; Uses:   All registers
+;--------------------------------------------------------------
+DRAWCEL:
+        PUSH    PSW             ; Save color
+
+        ; Compute pixel_x = PFORGX + col*3
+        MOV     A,B             ; A = col
+        ADD     A               ; A = col*2
+        ADD     B               ; A = col*3
+        ADI     PFORGX          ; A = pixel_x
+        MOV     B,A             ; B = pixel_x
+
+        ; Compute pixel_y = PFORGY + row*3
+        MOV     A,C             ; A = row
+        ADD     A               ; A = row*2
+        ADD     C               ; A = row*3
+        ADI     PFORGY          ; A = pixel_y
+        MOV     C,A             ; C = pixel_y
+
+        ; D = pixel_x + 2, E = pixel_y + 2
+        MOV     A,B
+        ADI     2
+        MOV     D,A             ; D = pixel_x + 2
+        MOV     A,C
+        ADI     2
+        MOV     E,A             ; E = pixel_y + 2
+
+        ; Call DZLFRECT: B=x0 C=y0 D=x1 E=y1 A=color
+        POP     PSW             ; Restore color
+        CALL    DZLFRECT
+
+        RET
+
+;--------------------------------------------------------------
+; DRAWPC - Draw the active piece on the playfield
+;
+; Reads PCTYPE, PCROT, PCCOL, PCROW, PCCLR.
+; Draws 4 cells; skips cells outside [0,9]x[0,19].
+; Uses: All registers
+;--------------------------------------------------------------
+DRAWPC:
+        ; Get rotation data address into HL
+        LDA     PCTYPE
+        MOV     B,A             ; B = piece type
+        LDA     PCROT           ; A = rotation
+        CALL    GETROT          ; HL = rotation data
+
+        ; Draw 4 cells
+        MVI     D,4             ; Loop counter
+DRAWPC1:
+        PUSH    D               ; Save loop counter
+        PUSH    H               ; Save data pointer
+
+        ; Read dc, dr
+        MOV     A,M             ; A = dc
+        INX     H
+        MOV     E,M             ; E = dr
+
+        ; Compute column = PCCOL + dc
+        MOV     C,A             ; C = dc
+        LDA     PCCOL
+        ADD     C               ; A = col + dc
+        MOV     B,A             ; B = actual column
+
+        ; Check column in range [0,9]
+        CPI     10
+        JNC     DRAWPC2         ; Skip if >= 10
+
+        ; Compute row = PCROW + dr
+        LDA     PCROW
+        ADD     E               ; A = row + dr
+        MOV     C,A             ; C = actual row
+
+        ; Check row in range [0,19]
+        CPI     20
+        JNC     DRAWPC2         ; Skip if >= 20
+
+        ; Draw this cell
+        LDA     PCCLR
+        CALL    DRAWCEL
+
+DRAWPC2:
+        POP     H               ; Restore data pointer
+        INX     H               ; Skip to next (dc,dr)
+        INX     H
+        POP     D               ; Restore loop counter
+        DCR     D
+        JNZ     DRAWPC1
+
+        RET
+
+;--------------------------------------------------------------
+; ERSPC - Erase the active piece (draw in BLACK)
+;
+; Same as DRAWPC but uses BLACK color.
+; Uses: All registers
+;--------------------------------------------------------------
+ERSPC:
+        ; Get rotation data address into HL
+        LDA     PCTYPE
+        MOV     B,A
+        LDA     PCROT
+        CALL    GETROT          ; HL = rotation data
+
+        ; Erase 4 cells
+        MVI     D,4
+ERSPC1:
+        PUSH    D
+        PUSH    H
+
+        MOV     A,M             ; dc
+        INX     H
+        MOV     E,M             ; dr
+
+        ; column = PCCOL + dc
+        MOV     C,A
+        LDA     PCCOL
+        ADD     C
+        MOV     B,A
+
+        CPI     10
+        JNC     ERSPC2
+
+        ; row = PCROW + dr
+        LDA     PCROW
+        ADD     E
+        MOV     C,A
+
+        CPI     20
+        JNC     ERSPC2
+
+        ; Erase this cell (BLACK)
+        MVI     A,BLACK
+        CALL    DRAWCEL
+
+ERSPC2:
+        POP     H
+        INX     H
+        INX     H
+        POP     D
+        DCR     D
+        JNZ     ERSPC1
+
+        RET
+
+;--------------------------------------------------------------
+; DRWNXT - Draw next piece in preview box
+;
+; Erases preview interior, then draws PCNEXT piece
+; at state 0 centered in the preview box.
+; Uses: All registers
+;--------------------------------------------------------------
+DRWNXT:
+        ; Erase interior of preview box
+        CALL    ERSNXT
+
+        ; Get rotation data for next piece, state 0
+        LDA     PCNEXT
+        MOV     B,A             ; B = piece type
+        MVI     A,0             ; Rotation 0
+        CALL    GETROT          ; HL = rotation data
+
+        ; Look up color for next piece
+        LDA     PCNEXT
+        PUSH    H               ; Save rotation ptr
+        LXI     H,PCTBL
+        MOV     E,A
+        MVI     D,0
+        DAD     D               ; HL = &PCTBL[PCNEXT]
+        MOV     A,M             ; A = color
+        STA     NXCLR           ; Save color locally
+        POP     H               ; Restore rotation ptr
+
+        ; Draw 4 cells in preview area
+        MVI     D,4
+DRWN1:
+        PUSH    D
+        PUSH    H
+
+        MOV     A,M             ; dc
+        INX     H
+        MOV     E,M             ; dr
+
+        ; pixel_x = NXORGX + dc * 3
+        MOV     C,A             ; C = dc
+        ADD     A               ; dc*2
+        ADD     C               ; dc*3
+        ADI     NXORGX          ; pixel_x
+        MOV     B,A             ; B = x0
+
+        ; pixel_y = NXORGY + dr * 3
+        MOV     A,E             ; A = dr
+        MOV     C,A
+        ADD     A               ; dr*2
+        ADD     C               ; dr*3
+        ADI     NXORGY          ; pixel_y
+        MOV     C,A             ; C = y0
+
+        ; D = x0+2, E = y0+2
+        MOV     A,B
+        ADI     2
+        MOV     D,A
+        MOV     A,C
+        ADI     2
+        MOV     E,A
+
+        ; Draw filled rect
+        LDA     NXCLR
+        CALL    DZLFRECT
+
+        POP     H
+        INX     H
+        INX     H
+        POP     D
+        DCR     D
+        JNZ     DRWN1
+
+        RET
+
+; Local storage for next piece color
+NXCLR:  DB      0
+
+;--------------------------------------------------------------
+; ERSNXT - Erase next piece preview interior
+;
+; Fills the interior of the preview box with BLACK.
+; Uses: All registers
+;--------------------------------------------------------------
+ERSNXT:
+        ; Fill interior with BLACK rect
+        MVI     B,NXBOXX+1
+        MVI     C,NXBOXY+1
+        MVI     D,NXBOXR-1
+        MVI     E,NXBOXB-1
+        MVI     A,BLACK
+        CALL    DZLFRECT
+        RET
+
+;--------------------------------------------------------------
+; REDRAW - Redraw the entire playfield from BOARD array
+;
+; Called after line clear. Draws all 200 cells.
+; Uses: All registers
+;--------------------------------------------------------------
+REDRAW:
+        LXI     H,BOARD         ; HL = board pointer
+        MVI     C,0             ; C = current row
+REDR1:
+        MVI     B,0             ; B = current column
+REDR2:
+        PUSH    H
+        PUSH    B
+
+        ; Get color from board
+        MOV     A,M             ; A = cell color (0=empty)
+
+        ; Draw cell at (B=col, C=row, A=color)
+        CALL    DRAWCEL
+
+        POP     B
+        POP     H
+        INX     H               ; Next board cell
+        INR     B               ; Next column
+        MOV     A,B
+        CPI     PFCOLS
+        JC      REDR2           ; More columns
+
+        INR     C               ; Next row
+        MOV     A,C
+        CPI     PFROWS
+        JC      REDR1           ; More rows
+
+        RET
+
+;--------------------------------------------------------------
+; DRAWLVL - Draw level indicator bar
+;
+; Draws a vertical bar whose height = level (max ~12).
+; Position: X=48..52, from Y=LVLBOT upward.
+; First clears the bar area, then fills per level.
+; Uses: All registers
+;--------------------------------------------------------------
+DRAWLVL:
+        ; Clear the level bar area
+        MVI     B,LVLX
+        MVI     C,LVLTOP
+        MVI     D,LVLXR
+        MVI     E,LVLBOT
+        MVI     A,BLACK
+        CALL    DZLFRECT
+
+        ; Compute bar height from level
+        ; Each level = 3 pixels of height
+        LDA     DLEVEL          ; Load cached level
+        ORA     A
+        RZ                      ; Level 0: no bar
+
+        ; Clamp to max displayable levels
+        CPI     13
+        JC      DL1
+        MVI     A,12            ; Max 12 segments
+DL1:
+        ; bar_height_pixels = level * 3
+        MOV     C,A             ; Save level
+        ADD     A               ; level*2
+        ADD     C               ; level*3
+        MOV     E,A             ; E = pixel height
+
+        ; bar top Y = LVLBOT - pixel_height + 1
+        MVI     A,LVLBOT
+        SUB     E
+        INR     A
+        MOV     C,A             ; C = top Y of bar
+
+        ; Draw the bar
+        MVI     B,LVLX
+        MVI     D,LVLXR
+        MVI     E,LVLBOT
+        MVI     A,BCYAN
+        CALL    DZLFRECT
+
+        RET
+
+; Local cached level (set by caller before DRAWLVL)
+        PUBLIC  DLEVEL
+DLEVEL: DB      0
+
+        END
+

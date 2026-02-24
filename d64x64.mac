@@ -1,0 +1,515 @@
+        TITLE   'Cromemco Dazzler 64x64 Graphics Library'
+;-------------------------------------------------------------------
+; D64X64.MAC - Cromemco Dazzler 64x64 Graphics Library - Part 1
+;
+; Part of the D64X64 3-module library.
+; See D64X64A.MAC, D64X64B.MAC for remaining functions.
+;
+; Version: 1.13
+; Date: 2026-02-18
+;
+; Contains:
+;   DZLINIT  - Initialize Dazzler hardware
+;   DZLCLOSE - Disable Dazzler
+;   DZWAIT   - Wait for vertical blanking
+;   DZLCLR   - Clear screen to color
+;   DZLHLIN  - Draw horizontal line
+;   HLSEG    - Horizontal segment helper (local)
+;
+; Build:
+;   M80 =D64X64
+;   M80 =D64X64A
+;   M80 =D64X64B
+;   L80 <target>,D64X64,D64X64A,D64X64B,<target>/N/E
+;
+; Revision History:
+;   1.0 - Initial library version based on line.mac v1.5
+;         Complete graphics primitives library
+;   1.1 - Added PUBLIC declarations for all library functions
+;   1.2 - Fixed DZLHLIN and DZLVLIN to clip coordinates instead
+;         of rejecting off-screen lines (fixes filled circles)
+;   1.3 - Improved clipping to handle both negative AND > 63
+;         coordinates properly for filled circles
+;   1.4 - Fixed critical stack handling bug in DZLHLIN/DZLVLIN
+;         that broke all graphics functions
+;   1.5 - Optimized DZLHLIN with inline byte writes instead of
+;         per-pixel DZLPSET calls (5-10x speedup for filled shapes)
+;         Also fixes single-pixel case that was incorrectly skipped
+;   1.6 - Eliminated stack thrashing in DZLVLIN loop: color and
+;         Y2 stop coordinate now stored in memory instead of being
+;         pushed/popped on every iteration (~126 cycles saved/pixel)
+;         Also fixes DZLVLIN single-pixel case (Y1==Y2 now drawn)
+;   1.7 - Optimized DZLCLR: 8x unrolled loop, single-byte counter,
+;         MOV M,D eliminates the per-byte MOV A,D load (~3x speedup)
+;   1.8 - Optimized DZLPSET: dzy*16 computed via 4x DAD H instead of
+;         4x ADD A + overflow branch, eliminating NOOV label; combined
+;         with subsequent XCHG removal saves ~8 cycles per pixel call
+;   1.9 - Eliminated xo/yo stack pushes in DZLPSET: xo+yo always has
+;         lo byte = 0 (xo in {0,512}, yo in {0,1024}), so only the
+;         high byte (0,2,4,6) is stored in PSETOFF; retrieval collapses
+;         from 2x(POP D + DAD D) to LDA + ADD H + MOV H,A (~18 cy saved)
+;         Stack depth reduced by 2 words per DZLPSET call
+;   1.10- Added DZLPSI internal entry point to DZLPSET: skips bounds
+;         check (44 cycles saved per call) for callers that pre-validate
+;         coordinates; DZLHLIN/DZLVLIN internal loops updated to use it;
+;         DZLCIRC/DZLLINE keep DZLPSET (may plot clipped/out-of-range pts)
+;   1.11- Fixed bug introduced in 1.10: moving bounds check before PUSH PSW
+;         caused MOV A,B / MOV A,C in bounds check to overwrite the color
+;         in A before it was saved; fix: save A in L on entry to DZLPSET,
+;         restore A from L just before DZLPSI (10 cycles, L is scratch)
+;   1.12- Precomputed row stride in DZLVLIN: starting byte address computed
+;         once (same technique as DZLPSI), color nibble byte and mask
+;         precomputed from X parity, HL advanced by stride 16 per row.
+;         Quadrant boundary (Y=32) handled as a one-time +528 correction
+;         between two loop segments. ~3.5x faster than per-pixel DZLPSI.
+;   1.13- Register allocation in PLOT8 and DZLLINE inner loops:
+;         PLOT8: DZLPSET preserves B and C; even-indexed points reuse C
+;         from the prior call (skip Y reload, 40cy saved each) and derive
+;         B via ADD/SUB instead of reloading CIRCXC (saves 1 LDA each);
+;         odd-indexed points 3 and 7 also derive B from prior B, saving
+;         1 LDA CIRCXC. Total: 14 fewer LDA per PLOT8 call.
+;         DZLLINE LINELOOP: after CALL DZLPSET B=LINEX0 and C=LINEY0
+;         are preserved; replaced 2x(LDA+MOV) with 2x MOV, saving 26cy
+;         per iteration.
+;-------------------------------------------------------------------
+
+;-------------------------------------------------------------------
+; Public and external declarations
+;-------------------------------------------------------------------
+        PUBLIC  DZLINIT,DZLCLOSE,DZLCLR,DZLHLIN
+        PUBLIC  DZWAIT
+        EXTRN   FBBASE,HLCOLRAW,HLXSTOP
+        EXTRN   HLFULLCOL,HLROWBASE,DZLPSI
+
+
+; CP/M equates
+BDOS    EQU     0005H           ; BDOS entry point
+WBOOT   EQU     0000H           ; Warm boot
+CONOUT  EQU     02H             ; Console output function
+PSTRING EQU     09H             ; Print string function
+
+; Dazzler hardware ports
+DZLPORT EQU     0EH             ; Base address control port
+DZLMODE EQU     0FH             ; Graphics mode control port
+
+; Dazzler configuration
+DZLBASE EQU     0F000H          ; Frame buffer at F000H
+DZLCFG  EQU     3FH             ; 64x64, 16-color, 2K, RGB
+
+; Screen parameters (64x64 full screen)
+XMAX    EQU     63              ; Maximum X coordinate
+YMAX    EQU     63              ; Maximum Y coordinate
+
+; Define the 16 color palette values
+BLACK   EQU     0       ; BLACK
+DRED    EQU     1       ; DIM RED
+DGREEN  EQU     2       ; DIM GREEN
+DYELLOW EQU     3       ; DIM YELLOW
+DBLUE   EQU     4       ; DIM BLUE
+DPURPLE EQU     5       ; DIM PURPLE
+DCYAN   EQU     6       ; DIM CYAN
+GREY    EQU     7       ; GREY
+GRAY    EQU     7       ; GREY
+; 8 is also black
+BRED    EQU     9       ; BRIGHT RED
+BGREEN  EQU     10      ; BRIGHT GREEN
+BYELLOW EQU     11      ; BRIGHT YELLOW
+BBLUE   EQU     12      ; BRIGHT BLUE
+BPURPLE EQU     13      ; BRIGHT PURPLE
+BCYAN   EQU     14      ; BRIGHT CYAN
+WHITE   EQU     15      ; BRIGHT WHITE
+BWHITE  EQU     15      ; BRIGHT WHITE
+
+;-------------------------------------------------------------------
+; Library Functions
+;-------------------------------------------------------------------
+
+;-------------------------------------------------------------------
+; DZLINIT - Initialize Dazzler hardware
+;
+; Entry:  HL = Frame buffer base address
+; Exit:   A = 0x00 on success, 0xFF on error
+;         Carry flag set on error
+; Uses:   A, HL
+;-------------------------------------------------------------------
+DZLINIT:
+        PUSH    B
+        PUSH    D
+
+        ; Save base address for later use
+        SHLD    FBBASE
+
+        ; Enable Dazzler and set base address
+        ; Base address is shifted right 1 bit
+        ; MSB controls enable (1=on, 0=off)
+        LHLD    FBBASE          ; Reload base address (for clarity)
+        MOV     A,H             ; Get high byte of base
+        RRC                     ; Shift base addr right 1 bit
+        ADI     80H             ; Enable the DAZZLER (set MSB)
+        OUT     DZLPORT         ; Send to port 0x0E
+
+        ; Set graphics mode: 64x64, 16-color, 2K, RGB
+        MVI     A,DZLCFG        ; Mode byte 0x3F
+        OUT     DZLMODE         ; Send to port 0x0F
+
+        ; Small delay to let hardware settle
+        MVI     B,10
+INITDLY:
+        DCR     B
+        JNZ     INITDLY
+
+        ; Success
+        XRA     A               ; A = 0 (success)
+        POP     D
+        POP     B
+        RET
+
+;-------------------------------------------------------------------
+; DZLCLOSE - Disable Dazzler hardware
+;
+; Entry:  None
+; Exit:   None
+; Uses:   A
+;-------------------------------------------------------------------
+DZLCLOSE:
+        PUSH    PSW
+        PUSH    H
+
+        ; Disable Dazzler by clearing MSB
+        LHLD    FBBASE
+        MOV     A,H             ; Get high byte of base
+        RRC                     ; Shift base addr right 1 bit
+        ANI     7FH             ; Clear MSB (disable Dazzler)
+        OUT     DZLPORT         ; Send to port 0x0E
+
+        POP     H
+        POP     PSW
+        RET
+
+;-------------------------------------------------------------------
+; DZWAIT - Wait for start of vertical blanking interval
+;
+; Two-phase wait on DZLPORT bit 6:
+;   Phase 1: If already in blank (bit 6 low), spin until
+;            the active period resumes (bit 6 goes high).
+;   Phase 2: Spin until bit 6 goes low again, catching the
+;            start of the next blanking period.
+;
+; Guarantees the caller gets the full 4ms blanking window
+; regardless of when DZWAIT is called during the frame.
+;
+; Entry:  None
+; Exit:   None
+; Uses:   A
+;-------------------------------------------------------------------
+DZWAIT:
+        ; Phase 1: skip current blank if already in one
+DZW1:
+        IN      DZLPORT         ; Read Dazzler status
+        ANI     40H             ; Test bit 6
+        JZ      DZW1            ; Loop while low (in blank)
+        ; Phase 2: wait for next blank to start
+DZW2:
+        IN      DZLPORT         ; Read Dazzler status
+        ANI     40H             ; Test bit 6
+        JNZ     DZW2            ; Loop while high (active)
+        RET                     ; Bit 6 low: at start of blank
+
+;-------------------------------------------------------------------
+; DZLCLR - Clear screen to specified color
+;
+; 8x unrolled inner loop: 256 iterations of 8 bytes = 2048 bytes.
+; B=0 is the iteration counter (DCR B wraps 0->255 on first decrement,
+; then counts 255..1..0 — 256 trips total).  MOV M,D writes the fill
+; pattern directly, avoiding a per-byte MOV A,D load.  ~3x faster
+; than the original single-byte loop.
+;
+; Entry:  A = Fill color (0-15)
+; Exit:   A = 0 on success
+; Uses:   A, HL, B, D
+;-------------------------------------------------------------------
+DZLCLR:
+        ANI     0FH             ; Ensure color 0-15
+        MOV     D,A             ; Save lo nibble
+        RLC                     ; Shift color to high nibble
+        RLC
+        RLC
+        RLC
+        ORA     D               ; Combine: color in both nibbles
+        MOV     D,A             ; D = fill pattern (e.g. color 5 -> 0x55)
+
+        LHLD    FBBASE          ; HL = frame buffer base address
+        MVI     B,0             ; 256 iterations * 8 bytes = 2048 bytes
+
+CLRLOOP:
+        MOV     M,D             ; Write 2 pixels
+        INX     H
+        MOV     M,D             ; Write 2 pixels
+        INX     H
+        MOV     M,D             ; Write 2 pixels
+        INX     H
+        MOV     M,D             ; Write 2 pixels
+        INX     H
+        MOV     M,D             ; Write 2 pixels
+        INX     H
+        MOV     M,D             ; Write 2 pixels
+        INX     H
+        MOV     M,D             ; Write 2 pixels
+        INX     H
+        MOV     M,D             ; Write 2 pixels
+        INX     H
+        DCR     B               ; Decrement iteration counter
+        JNZ     CLRLOOP         ; Loop until B wraps back to 0
+
+        XRA     A               ; Return success
+        RET
+
+;-------------------------------------------------------------------
+; DZLHLIN - Draw horizontal line (optimized with inline byte writes)
+;
+; Instead of calling DZLPSET per pixel, the row address is computed
+; once and pixels are written directly as nibbles into the frame
+; buffer.  For multi-pixel lines this is 5-10x faster than the
+; original implementation and benefits DZLFCIRC and DZLFRECT which
+; call DZLHLIN for every span/row.
+;
+; Entry:  B = X1 (start X)
+;         C = Y (row)
+;         D = X2 (end X)
+;         A = Color
+; Exit:   A = 0 on success
+; Uses:   All registers
+;-------------------------------------------------------------------
+DZLHLIN:
+        STA     HLCOLRAW        ; Save color
+
+        ; if (Y >= 64) return
+        MOV     A,C
+        CPI     64
+        JNC     HLRET0
+
+        ; Clip X1 to [0,63]: values >= 128 treated as negative -> 0
+        MOV     A,B
+        CPI     128
+        JC      HL_X1A
+        MVI     B,0
+HL_X1A:
+        MOV     A,B
+        CPI     64
+        JC      HL_X1B
+        MVI     B,63
+HL_X1B:
+
+        ; Clip X2 to [0,63]
+        MOV     A,D
+        CPI     128
+        JC      HL_X2A
+        MVI     D,0
+HL_X2A:
+        MOV     A,D
+        CPI     64
+        JC      HL_X2B
+        MVI     D,63
+HL_X2B:
+
+        ; Compare X1 with X2 to determine line type
+        MOV     A,B             ; A = X1
+        CMP     D               ; Compare X1 with X2
+        JC      HLMULTI         ; X1 < X2: multi-pixel line
+        JZ      HLSINGLE        ; X1 == X2: single pixel
+        ; X1 > X2: nothing to draw
+
+HLRET0:
+        XRA     A
+        RET
+
+HLSINGLE:
+        ; Single pixel: coordinates pre-validated, use internal entry
+        LDA     HLCOLRAW
+        CALL    DZLPSI
+        XRA     A
+        RET
+
+HLMULTI:
+        ; B=X1 (0-63), C=Y (0-63), D=X2 (0-63), X1 < X2
+        MOV     A,D
+        STA     HLXSTOP         ; Save X2
+
+        ; Build HLFULLCOL = (color<<4) | color  e.g. 5 -> 0x55
+        LDA     HLCOLRAW
+        ANI     0FH             ; Ensure 0-15
+        MOV     E,A             ; E = lo nibble color
+        RLC
+        RLC
+        RLC
+        RLC                     ; A = color shifted into high nibble
+        ORA     E               ; A = color in both nibbles
+        STA     HLFULLCOL
+
+        ; Compute yo (0 or 1024) and dzy (Y mod 32) from Y
+        MOV     A,C             ; A = Y
+        CPI     32
+        JC      HL_YLT32        ; Y < 32: yo=0, dzy=Y
+
+        ; Y >= 32: yo=1024, dzy=Y-32
+        SUI     32              ; dzy = Y - 32
+        MOV     C,A
+        MOV     L,C
+        MVI     H,0
+        DAD     H               ; HL = dzy*2
+        DAD     H               ; HL = dzy*4
+        DAD     H               ; HL = dzy*8
+        DAD     H               ; HL = dzy*16
+        MOV     A,H
+        ADI     4               ; Add high byte of 1024 (= 0x04)
+        MOV     H,A             ; HL = 1024 + dzy*16
+        JMP     HL_YBASE
+
+HL_YLT32:
+        ; Y < 32: yo=0, dzy=Y  (C unchanged)
+        MOV     L,C
+        MVI     H,0
+        DAD     H               ; HL = dzy*2
+        DAD     H               ; HL = dzy*4
+        DAD     H               ; HL = dzy*8
+        DAD     H               ; HL = dzy*16
+
+HL_YBASE:
+        ; HL = yo + dzy*16  (complete row offset from FBBASE)
+        XCHG                    ; DE = row offset
+        LHLD    FBBASE
+        DAD     D               ; HL = FBBASE + yo + dzy*16 = row_base
+        SHLD    HLROWBASE       ; Save for second segment if crossing X=32
+
+        ; Determine starting quadrant (Q0/Q2 vs Q1/Q3)
+        MOV     A,B             ; A = X1
+        CPI     32
+        JC      HLSEG_Q0        ; X1 < 32: start in Q0/Q2
+
+        ; X1 >= 32: entirely within Q1/Q3
+        SUI     32              ; dzx1 = X1 - 32
+        MOV     B,A             ; B = dzx1 (0-31)
+        LXI     D,512
+        DAD     D               ; HL = row_base + 512  (Q1/Q3 row)
+        MOV     A,B             ; dzx1
+        RRC
+        ANI     7FH             ; dzx1 / 2
+        MOV     E,A
+        MVI     D,0
+        DAD     D               ; HL = starting byte address in Q1/Q3
+        LDA     HLXSTOP
+        SUI     32              ; dzx2 = X2 - 32  (X2 > X1 >= 32)
+        MOV     C,A
+        CALL    HLSEG           ; Write Q1/Q3 segment
+        XRA     A
+        RET
+
+HLSEG_Q0:
+        ; X1 < 32: start in Q0/Q2
+        LHLD    HLROWBASE       ; HL = row_base
+        MOV     A,B             ; X1 = dzx1
+        RRC
+        ANI     7FH             ; dzx1 / 2
+        MOV     E,A
+        MVI     D,0
+        DAD     D               ; HL = starting byte in Q0/Q2 row
+
+        ; Check whether X2 also fits in Q0/Q2
+        LDA     HLXSTOP
+        CPI     32
+        JC      HLSEG_Q0ONLY    ; X2 < 32: single quadrant
+
+        ; X2 >= 32: two segments (Q0/Q2 then Q1/Q3)
+        MVI     C,31            ; Q0/Q2 segment ends at dzx=31
+        CALL    HLSEG           ; Write Q0/Q2 segment (B=X1, C=31)
+
+        ; Write Q1/Q3 segment: dzx 0 to X2-32
+        LHLD    HLROWBASE
+        LXI     D,512
+        DAD     D               ; HL = row_base + 512
+        MVI     B,0             ; Start at dzx=0 (global X=32)
+        LDA     HLXSTOP
+        SUI     32              ; dzx2 = X2 - 32
+        MOV     C,A
+        CALL    HLSEG           ; Write Q1/Q3 segment
+        XRA     A
+        RET
+
+HLSEG_Q0ONLY:
+        ; X2 < 32: all pixels in Q0/Q2
+        ; HL = starting byte (computed above), B = X1 = dzx1
+        LDA     HLXSTOP
+        MOV     C,A             ; C = X2 = dzx_end
+        CALL    HLSEG
+        XRA     A
+        RET
+
+;-------------------------------------------------------------------
+; HLSEG - Write pixels within one quadrant for DZLHLIN
+;
+; Handles a leading odd pixel, interior full-byte pairs, and a
+; trailing lone even pixel.  Called 1 or 2 times per DZLHLIN call.
+;
+; Memory layout: even-X pixel -> low nibble (bits 3:0)
+;                odd-X pixel  -> high nibble (bits 7:4)
+;
+; Entry:  HL = starting byte address
+;         B  = start_dzx (0-31, any parity)
+;         C  = end_dzx   (0-31, >= B)
+;         HLFULLCOL = color byte with color in both nibbles
+; Uses:   A, B, C, HL, DE
+;-------------------------------------------------------------------
+HLSEG:
+        ; Step 1: handle leading odd pixel when B is odd
+        MOV     A,B
+        ANI     01H
+        JZ      HLSEG_EVEN      ; B is even, nothing to do here
+
+        ; B is odd: write color into high nibble of *HL only
+        LDA     HLFULLCOL
+        ANI     0F0H            ; Isolate high nibble color
+        MOV     D,A
+        MOV     A,M             ; Read current byte
+        ANI     0FH             ; Keep existing low nibble
+        ORA     D               ; Insert color into high nibble
+        MOV     M,A
+        INX     H               ; Advance to next byte
+        INR     B               ; B is now even
+
+        ; If C < B we just wrote the only pixel
+        MOV     A,C
+        CMP     B               ; Carry set if C < B
+        JC      HLSEG_RET
+
+HLSEG_EVEN:
+        ; B is even.  Write full bytes while B < C.
+        ; When B == C: write low nibble only (lone trailing even pixel).
+        MOV     A,B
+        CMP     C               ; Zero if B==C, carry if B<C
+        JZ      HLSEG_LONE      ; B == C: lone even pixel at end
+        JNC     HLSEG_RET       ; B > C: done
+
+        ; B < C: write full byte covering even pixel B (low nib)
+        ;                            and odd  pixel B+1 (high nib)
+        LDA     HLFULLCOL
+        MOV     M,A
+        INX     H               ; Advance to next byte
+        INR     B
+        INR     B               ; B += 2
+        JMP     HLSEG_EVEN
+
+HLSEG_LONE:
+        ; B == C, B is even: write color into low nibble only
+        LDA     HLFULLCOL
+        ANI     0FH             ; Isolate low nibble color
+        MOV     D,A
+        MOV     A,M             ; Read current byte
+        ANI     0F0H            ; Keep existing high nibble
+        ORA     D               ; Insert color into low nibble
+        MOV     M,A
+
+HLSEG_RET:
+        RET
+
+        END
+

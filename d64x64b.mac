@@ -1,0 +1,612 @@
+        TITLE   'Cromemco Dazzler 64x64 Graphics Library - Part 3'
+;-------------------------------------------------------------------
+; D64X64B.MAC - Cromemco Dazzler 64x64 Graphics Library - Part 3
+;
+; Part of the D64X64 3-module library.
+; See D64X64.MAC for full revision history and build instructions.
+;
+; Contains:
+;   FILLH    - Fill horizontal lines for filled circle
+;   DZLLINE  - Draw line at arbitrary angle
+;   DZLRECT  - Draw rectangle outline
+;   DZLFRECT - Draw filled rectangle
+;   DZLPSET  - Set pixel
+;   DZLPSI - Set pixel (internal fast entry, no bounds check)
+;   Data area - all working variables and frame buffer pointer
+;-------------------------------------------------------------------
+
+;-------------------------------------------------------------------
+; Public and external declarations
+;-------------------------------------------------------------------
+        PUBLIC  DZLPSET,DZLPSI,FILLH
+        PUBLIC  DZLLINE,DZLRECT,DZLFRECT
+        PUBLIC  FBBASE,HLCOLRAW,HLXSTOP
+        PUBLIC  HLFULLCOL,HLROWBASE
+        PUBLIC  VLCOLRAW,VLYSTOP,VLCOLB,VLMASK
+        PUBLIC  CIRCXC,CIRCYC,CIRCR
+        PUBLIC  CIRCX,CIRCY,CIRCD,CIRCC
+        EXTRN   DZLHLIN,DZLVLIN
+
+;-------------------------------------------------------------------
+; FILLH - Fill horizontal lines for filled circle
+;
+; Draws 4 horizontal lines for the current x,y in circle
+; Uses CIRCXC, CIRCYC, CIRCX, CIRCY, CIRCC
+;-------------------------------------------------------------------
+FILLH:
+        ; Line 1: from (xc-x, yc+y) to (xc+x, yc+y)
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCX
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; xc - x
+        MOV     B,A
+        LDA     CIRCYC
+        MOV     E,A
+        LDA     CIRCY
+        ADD     E               ; yc + y
+        MOV     C,A
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCX
+        ADD     E               ; xc + x
+        MOV     D,A
+        LDA     CIRCC
+        CALL    DZLHLIN
+
+        ; Line 2: from (xc-x, yc-y) to (xc+x, yc-y)
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCX
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; xc - x
+        MOV     B,A
+        LDA     CIRCYC
+        MOV     E,A
+        LDA     CIRCY
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; yc - y
+        MOV     C,A
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCX
+        ADD     E               ; xc + x
+        MOV     D,A
+        LDA     CIRCC
+        CALL    DZLHLIN
+
+        ; Line 3: from (xc-y, yc+x) to (xc+y, yc+x)
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCY
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; xc - y
+        MOV     B,A
+        LDA     CIRCYC
+        MOV     E,A
+        LDA     CIRCX
+        ADD     E               ; yc + x
+        MOV     C,A
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCY
+        ADD     E               ; xc + y
+        MOV     D,A
+        LDA     CIRCC
+        CALL    DZLHLIN
+
+        ; Line 4: from (xc-y, yc-x) to (xc+y, yc-x)
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCY
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; xc - y
+        MOV     B,A
+        LDA     CIRCYC
+        MOV     E,A
+        LDA     CIRCX
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; yc - x
+        MOV     C,A
+        LDA     CIRCXC
+        MOV     E,A
+        LDA     CIRCY
+        ADD     E               ; xc + y
+        MOV     D,A
+        LDA     CIRCC
+        CALL    DZLHLIN
+
+        RET
+
+;-------------------------------------------------------------------
+; DZLLINE - Draw line at arbitrary angle using Bresenham
+;
+; Entry:  B = X0 (start X)
+;         C = Y0 (start Y)
+;         D = X1 (end X)
+;         E = Y1 (end Y)
+;         A = Color
+; Exit:   A = 0 on success
+; Uses:   All registers
+;-------------------------------------------------------------------
+DZLLINE:
+        ; Save parameters
+        STA     LINEC           ; Save color
+        MOV     A,B
+        STA     LINEX0          ; Save X0
+        MOV     A,C
+        STA     LINEY0          ; Save Y0
+        MOV     A,D
+        STA     LINEX1          ; Save X1
+        MOV     A,E
+        STA     LINEY1          ; Save Y1
+
+        ; Calculate dx = abs(x1 - x0)
+        LDA     LINEX1
+        MOV     E,A
+        LDA     LINEX0
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; x1 - x0
+        JP      DX_POS
+        CMA
+        INR     A               ; abs
+DX_POS:
+        STA     LINEDX
+
+        ; Calculate dy = abs(y1 - y0)
+        LDA     LINEY1
+        MOV     E,A
+        LDA     LINEY0
+        MOV     D,A
+        MOV     A,E
+        SUB     D               ; y1 - y0
+        JP      DY_POS
+        CMA
+        INR     A               ; abs
+DY_POS:
+        STA     LINEDY
+
+        ; Determine sx (step direction for x)
+        LDA     LINEX0
+        MOV     D,A
+        LDA     LINEX1
+        CMP     D
+        MVI     A,1             ; sx = 1
+        JNC     SX_DONE
+        MVI     A,0FFH          ; sx = -1
+SX_DONE:
+        STA     LINESX
+
+        ; Determine sy (step direction for y)
+        LDA     LINEY0
+        MOV     D,A
+        LDA     LINEY1
+        CMP     D
+        MVI     A,1             ; sy = 1
+        JNC     SY_DONE
+        MVI     A,0FFH          ; sy = -1
+SY_DONE:
+        STA     LINESY
+
+        ; err = dx - dy
+        LDA     LINEDX
+        MOV     E,A
+        LDA     LINEDY
+        MOV     D,A
+        MOV     A,E
+        SUB     D
+        STA     LINEERR         ; err (low byte)
+        MVI     A,0
+        SBB     A
+        STA     LINEERR+1       ; err (high byte, sign extend)
+
+        ; Set iteration limit = max(dx, dy) + 2
+        LDA     LINEDX
+        MOV     E,A
+        LDA     LINEDY
+        CMP     E
+        JC      USE_DX
+        MOV     E,A             ; Use dy
+USE_DX:
+        MOV     A,E
+        ADI     2               ; Add safety margin
+        STA     LINECNT         ; Iteration counter
+
+LINELOOP:
+        ; Decrement and check iteration counter
+        LDA     LINECNT
+        DCR     A
+        STA     LINECNT
+        JZ      LINEDONE        ; Abort if counter reaches 0
+
+        ; Plot current point (x0, y0)
+        LDA     LINEX0
+        MOV     B,A
+        LDA     LINEY0
+        MOV     C,A
+        LDA     LINEC
+        CALL    DZLPSET
+
+        ; Check if we've reached the end point (B=LINEX0, C=LINEY0 preserved by DZLPSET)
+        MOV     E,B
+        LDA     LINEX1
+        CMP     E
+        JNZ     LINECONT        ; Not done if x0 != x1
+        MOV     E,C
+        LDA     LINEY1
+        CMP     E
+        JZ      LINEDONE        ; Done if y0 == y1
+
+LINECONT:
+        ; e2 = 2 * err
+        LHLD    LINEERR
+        DAD     H               ; e2 = err * 2
+        SHLD    LINEE2
+
+        ; if (e2 > -dy) { err -= dy; x0 += sx; }
+        ; Compare e2 with -dy
+        LDA     LINEDY
+        CMA
+        INR     A               ; -dy (low byte)
+        MOV     E,A
+        MVI     D,0FFH          ; -dy (high byte, negative)
+        LHLD    LINEE2
+        ; HL - DE
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JM      CHK_Y           ; Skip if e2 <= -dy
+
+        ; err -= dy
+        LDA     LINEDY
+        MOV     E,A
+        MVI     D,0
+        LHLD    LINEERR
+        MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        SHLD    LINEERR
+
+        ; x0 += sx
+        LDA     LINEX0
+        MOV     E,A
+        LDA     LINESX
+        ADD     E
+        STA     LINEX0
+
+CHK_Y:
+        ; if (e2 < dx) { err += dx; y0 += sy; }
+        ; Compare e2 with dx
+        LDA     LINEDX
+        MOV     E,A
+        MVI     D,0
+        LHLD    LINEE2
+        ; DE - HL (swap for less-than test)
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JM      LINELOOP        ; Skip if e2 >= dx
+
+        ; err += dx
+        LDA     LINEDX
+        MOV     E,A
+        MVI     D,0
+        LHLD    LINEERR
+        DAD     D
+        SHLD    LINEERR
+
+        ; y0 += sy
+        LDA     LINEY0
+        MOV     E,A
+        LDA     LINESY
+        ADD     E
+        STA     LINEY0
+
+        JMP     LINELOOP
+
+LINEDONE:
+        XRA     A
+        RET
+
+;-------------------------------------------------------------------
+; DZLRECT - Draw rectangle outline
+;
+; Entry:  B = X0 (top-left X)
+;         C = Y0 (top-left Y)
+;         D = X1 (bottom-right X)
+;         E = Y1 (bottom-right Y)
+;         A = Color
+; Exit:   A = 0 on success
+; Uses:   All registers
+;-------------------------------------------------------------------
+DZLRECT:
+        ; Save parameters
+        STA     RECTC           ; Save color
+        MOV     A,B
+        STA     RECTX0          ; Save X0
+        MOV     A,C
+        STA     RECTY0          ; Save Y0
+        MOV     A,D
+        STA     RECTX1          ; Save X1
+        MOV     A,E
+        STA     RECTY1          ; Save Y1
+
+        ; Draw top edge: (x0,y0) to (x1,y0)
+        LDA     RECTX0
+        MOV     B,A
+        LDA     RECTY0
+        MOV     C,A
+        LDA     RECTX1
+        MOV     D,A
+        LDA     RECTC
+        CALL    DZLHLIN
+
+        ; Draw bottom edge: (x0,y1) to (x1,y1)
+        LDA     RECTX0
+        MOV     B,A
+        LDA     RECTY1
+        MOV     C,A
+        LDA     RECTX1
+        MOV     D,A
+        LDA     RECTC
+        CALL    DZLHLIN
+
+        ; Draw left edge: (x0,y0) to (x0,y1)
+        LDA     RECTX0
+        MOV     B,A
+        LDA     RECTY0
+        MOV     C,A
+        LDA     RECTY1
+        MOV     D,A
+        LDA     RECTC
+        CALL    DZLVLIN
+
+        ; Draw right edge: (x1,y0) to (x1,y1)
+        LDA     RECTX1
+        MOV     B,A
+        LDA     RECTY0
+        MOV     C,A
+        LDA     RECTY1
+        MOV     D,A
+        LDA     RECTC
+        CALL    DZLVLIN
+
+        XRA     A
+        RET
+
+;-------------------------------------------------------------------
+; DZLFRECT - Draw filled rectangle
+;
+; Entry:  B = X0 (top-left X)
+;         C = Y0 (top-left Y)
+;         D = X1 (bottom-right X)
+;         E = Y1 (bottom-right Y)
+;         A = Color
+; Exit:   A = 0 on success
+; Uses:   All registers
+;-------------------------------------------------------------------
+DZLFRECT:
+        ; Save parameters
+        STA     RECTC           ; Save color
+        MOV     A,B
+        STA     RECTX0          ; Save X0
+        MOV     A,C
+        STA     RECTY0          ; Save Y0
+        MOV     A,D
+        STA     RECTX1          ; Save X1
+        MOV     A,E
+        STA     RECTY1          ; Save Y1
+
+        ; y = y0
+        LDA     RECTY0
+        STA     RECTY
+
+FRLOOP:
+        ; Draw horizontal line from (x0,y) to (x1,y)
+        LDA     RECTX0
+        MOV     B,A
+        LDA     RECTY
+        MOV     C,A
+        LDA     RECTX1
+        MOV     D,A
+        LDA     RECTC
+        CALL    DZLHLIN
+
+        ; y++
+        LDA     RECTY
+        INR     A
+        STA     RECTY
+
+        ; Check if y <= y1
+        MOV     E,A
+        LDA     RECTY1
+        CMP     E
+        JNC     FRLOOP          ; Continue if y1 >= y
+
+        XRA     A
+        RET
+
+;-------------------------------------------------------------------
+; DZLPSET - Set pixel at (X,Y) to specified color
+;
+; Entry:  B = X coordinate (0-63)
+;         C = Y coordinate (0-63)
+;         A = Color (0-15)
+;         If X or Y >= 64, pixel is silently ignored
+; Exit:   A = 0
+;         B, C = PRESERVED (unchanged)
+; Uses:   A, HL, DE
+;
+; DZLPSI - Internal fast entry (no bounds check)
+;         Same calling convention as DZLPSET.
+;         Caller MUST guarantee B (X) and C (Y) are in range 0-63.
+;         Saves 44 cycles per call vs DZLPSET.
+;-------------------------------------------------------------------
+DZLPSET:
+        ; Save color in L: bounds check uses A for comparisons, overwriting it
+        MOV     L,A             ; L = color (HL is scratch, L is free at entry)
+        MOV     A,B             ; Get X
+        CPI     64              ; Compare with 64
+        JNC     PSETIGN         ; Ignore if X >= 64
+        MOV     A,C             ; Get Y
+        CPI     64              ; Compare with 64
+        JNC     PSETIGN         ; Ignore if Y >= 64
+        MOV     A,L             ; Restore color to A
+
+DZLPSI:
+        ; Internal entry: B = X (0-63), C = Y (0-63) already validated
+        PUSH    B               ; Save original X,Y
+        PUSH    PSW             ; Save color (A = color for both entry points)
+
+        ; Compute combined quadrant offset high byte into PSETOFF
+        ; xo = 512 = 0x0200, yo = 1024 = 0x0400: both have lo byte = 0
+        ; so xo+yo always has lo byte = 0; track high byte only (0,2,4,6)
+        MVI     D,0             ; D = combined offset high byte = 0
+        MOV     A,B             ; Get X
+        CPI     32
+        JC      XODONE
+        SUI     32
+        MOV     B,A             ; B = adjusted dzx (0-31)
+        INR     D               ; xo = 512: high byte += 2
+        INR     D
+XODONE:
+        MOV     A,C             ; Get Y
+        CPI     32
+        JC      YODONE
+        SUI     32
+        MOV     C,A             ; C = adjusted dzy (0-31)
+        MVI     A,4
+        ADD     D               ; yo = 1024: high byte += 4
+        MOV     D,A
+YODONE:
+        MOV     A,D
+        STA     PSETOFF         ; Save combined offset high byte (0, 2, 4, or 6)
+
+        ; p = dzram
+        LHLD    FBBASE          ; HL = p = dzram
+
+        ; p += (dzx / 2)
+        MOV     A,B             ; Get dzx
+        RRC                     ; dzx / 2
+        ANI     7FH             ; Clear carry
+        MOV     E,A
+        MVI     D,0             ; DE = dzx / 2
+        DAD     D               ; HL = p + dzx/2
+
+        ; p += (dzy * 16) using DAD H - 16-bit handles overflow naturally
+        ; dzy range 0-31, so dzy*16 max = 496 = 0x1F0, no 16-bit overflow
+        XCHG                    ; DE = p  (save current partial address)
+        MOV     L,C             ; L = dzy (0-31)
+        MVI     H,0
+        DAD     H               ; HL = dzy*2
+        DAD     H               ; HL = dzy*4
+        DAD     H               ; HL = dzy*8
+        DAD     H               ; HL = dzy*16
+        DAD     D               ; HL = p + dzy*16
+
+        ; Add combined quadrant offset (xo+yo): lo byte is always 0,
+        ; so only H needs updating: HL += (PSETOFF << 8)
+        LDA     PSETOFF         ; A = combined offset high byte
+        ADD     H               ; A = H + high_byte(xo+yo)
+        MOV     H,A             ; HL = i = p + dzy*16 + xo + yo
+
+        ; v = *i
+        MOV     A,M             ; A = v
+
+        ; if (dzx & 1)
+        MOV     D,A             ; D = v (save)
+        MOV     A,B             ; Get dzx
+        ANI     01H             ; Test bit 0
+        JNZ     LSNIB           ; Jump if LS nibble
+
+        ; MS nibble (dzx & 1 == 0)
+        ; v &= 0xF0
+        MOV     A,D             ; Get v
+        ANI     0F0H            ; Clear lower 4 bits
+        MOV     D,A
+        ; v += dzc
+        POP     PSW             ; Get color
+        ANI     0FH
+        ADD     D               ; v += dzc
+        ; *i = v
+        MOV     M,A
+        POP     B               ; Restore original X,Y
+        XRA     A
+        RET
+
+LSNIB:  ; LS nibble (dzx & 1 == 1)
+        ; v &= 0x0F
+        MOV     A,D             ; Get v
+        ANI     0FH             ; Clear top 4 bits
+        MOV     D,A
+        ; v += (dzc * 16)
+        POP     PSW             ; Get color
+        ANI     0FH
+        RLC                     ; Shift left 4
+        RLC
+        RLC
+        RLC
+        ADD     D               ; v += (dzc*16)
+        ; *i = v
+        MOV     M,A
+        POP     B               ; Restore original X,Y
+        XRA     A
+        RET
+
+PSETIGN:
+        XRA     A               ; Return 0 (pixel ignored - out of range)
+        RET
+
+;-------------------------------------------------------------------
+; Data area
+;-------------------------------------------------------------------
+CIRCX:  DB      0               ; Circle x coordinate
+CIRCY:  DB      0               ; Circle y coordinate
+CIRCD:  DW      0               ; Circle decision parameter
+CIRCXC: DB      0               ; Circle center X
+CIRCYC: DB      0               ; Circle center Y
+CIRCR:  DB      0               ; Circle radius
+CIRCC:  DB      0               ; Circle color
+LINEX0: DB      0               ; Line start X
+LINEY0: DB      0               ; Line start Y
+LINEX1: DB      0               ; Line end X
+LINEY1: DB      0               ; Line end Y
+LINEDX: DB      0               ; abs(x1-x0)
+LINEDY: DB      0               ; abs(y1-y0)
+LINESX: DB      0               ; Step direction X (-1 or 1)
+LINESY: DB      0               ; Step direction Y (-1 or 1)
+LINEERR:DW      0               ; Error accumulator
+LINEE2: DW      0               ; 2 * err
+LINEC:  DB      0               ; Line color
+LINECNT:DB      0               ; Iteration counter (safety)
+RECTX0: DB      0               ; Rectangle top-left X
+RECTY0: DB      0               ; Rectangle top-left Y
+RECTX1: DB      0               ; Rectangle bottom-right X
+RECTY1: DB      0               ; Rectangle bottom-right Y
+RECTY:  DB      0               ; Rectangle current Y (for fill)
+RECTC:  DB      0               ; Rectangle color
+HLCOLRAW:  DB  0               ; HLIN raw color input (0-15)
+HLFULLCOL: DB  0               ; HLIN color in both nibbles (e.g. 5->0x55)
+HLXSTOP:   DB  0               ; HLIN clipped X2
+HLROWBASE: DW  0               ; HLIN row base address (FBBASE+yo+dzy*16)
+VLCOLRAW:  DB  0               ; VLIN raw color input (0-15)
+VLYSTOP:   DB  0               ; VLIN clipped Y2
+VLCOLB:    DB  0               ; VLIN precomputed color nibble byte
+VLMASK:    DB  0               ; VLIN nibble mask (0xF0=even X, 0x0F=odd X)
+PSETOFF:   DB  0               ; PSET combined quadrant offset high byte (xo+yo >> 8)
+FBBASE: DW      0               ; Frame buffer base address
+
+        END
+
