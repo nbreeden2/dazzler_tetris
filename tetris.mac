@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.01
+; Version: 1.02
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -70,6 +70,16 @@ CONOUT  EQU     02H             ; Console output
 PSTRING EQU     09H             ; Print string
 DIRCON  EQU     06H             ; Direct console I/O
 
+; CPU speed mode (choose one):
+;   1 = Command-line switch (/2 or /4)
+;   2 = Hardcoded 2MHz
+;   3 = Hardcoded 4MHz
+SPDMODE EQU     1
+
+; CP/M command tail (used by SPDMODE 1)
+CMDLEN  EQU     0080H           ; Command tail length
+CMDTAIL EQU     0081H           ; Command tail buffer
+
 ; Dazzler configuration
 DZLBASE EQU     0F000H          ; Frame buffer base
 
@@ -91,6 +101,56 @@ START:
         LXI     D,MSGCTRL
         MVI     C,PSTRING
         CALL    BDOS
+
+        ; Prompt and wait for keypress to start
+        LXI     D,MSGGO
+        MVI     C,PSTRING
+        CALL    BDOS
+        LXI     H,0             ; 16-bit counter for RNG seed
+WAITGO:
+        INX     H               ; Increment counter
+        MVI     E,0FFH          ; Poll keyboard
+        MVI     C,DIRCON
+        PUSH    H               ; Save counter (BDOS may trash HL)
+        CALL    BDOS
+        POP     H
+        ORA     A
+        JZ      WAITGO          ; No key: keep counting
+        MOV     A,L             ; Use low byte as RNG seed
+        ORA     A
+        JNZ     GOTSEED
+        INR     A               ; Avoid seed of 0
+GOTSEED:
+        STA     RNGSEED
+
+        ; Parse command line for CPU speed switch
+        IF      SPDMODE EQ 1
+        MVI     A,5             ; Default: 2MHz prescaler
+        STA     PRESCL
+        LDA     CMDLEN
+        ORA     A
+        JZ      PARSED          ; No args: use default
+        MOV     B,A             ; B = tail length
+        LXI     H,CMDTAIL
+PFIND:
+        MOV     A,M
+        CPI     '/'
+        JZ      PFSLASH
+        INX     H
+        DCR     B
+        JNZ     PFIND
+        JMP     PARSED          ; No '/' found
+PFSLASH:
+        INX     H               ; Char after '/'
+        DCR     B
+        JZ      PARSED          ; '/' at end
+        MOV     A,M
+        CPI     '4'
+        JNZ     PARSED          ; Not '4': keep default
+        MVI     A,10            ; 4MHz prescaler
+        STA     PRESCL
+PARSED:
+        ENDIF
 
         ; Initialize Dazzler hardware
         LXI     H,DZLBASE
@@ -129,13 +189,16 @@ CLRBRD:
         LDA     SPDTBL          ; Level 0 speed
         STA     GRAVMAX
         STA     GRAVCNT
-        MVI     A,4             ; Prescaler: quarter speed
+        IF      SPDMODE EQ 1
+        LDA     PRESCL          ; From command line
+        ENDIF
+        IF      SPDMODE EQ 2
+        MVI     A,5             ; 2MHz prescaler
+        ENDIF
+        IF      SPDMODE EQ 3
+        MVI     A,10            ; 4MHz prescaler
+        ENDIF
         STA     GRAVPRE
-
-        ; Seed RNG from low memory timer area
-        ; (Use a somewhat arbitrary seed value)
-        MVI     A,137
-        STA     RNGSEED
 
         ; Generate first piece (as "next")
         CALL    RANDOM
@@ -253,7 +316,15 @@ NOGRAV:
         JNZ     NOFIRE          ; Prescaler not done
 
         ; Prescaler done: gravity fires
-        MVI     A,4             ; Fixed prescaler
+        IF      SPDMODE EQ 1
+        LDA     PRESCL          ; From command line
+        ENDIF
+        IF      SPDMODE EQ 2
+        MVI     A,5             ; 2MHz prescaler
+        ENDIF
+        IF      SPDMODE EQ 3
+        MVI     A,10            ; 4MHz prescaler
+        ENDIF
         STA     GRAVPRE
         JMP     GFIRE
 
@@ -579,13 +650,17 @@ PRTCH:
 ; Console message strings
 ;--------------------------------------------------------------
 MSGSTRT:
-        DB      'TETRIS for Cromemco Dazzler v1.01'
+        DB      'TETRIS for Cromemco Dazzler v1.02'
         DB      13,10,'$'
 
 MSGCTRL:
         DB      'A=Left D=Right W=Rotate '
         DB      'S=Drop SPACE=Hard Q=Quit'
         DB      13,10,10,'$'
+
+MSGGO:
+        DB      'Press any key to start...'
+        DB      13,10,'$'
 
 MSGOVER:
         DB      13,10,10,'GAME OVER!',13,10,'$'
@@ -604,6 +679,10 @@ MSGWAIT:
 
 MSGNL:
         DB      13,10,'$'
+
+        IF      SPDMODE EQ 1
+PRESCL: DB      5               ; Base prescaler (set by parser)
+        ENDIF
 
 MSCSCO: DB      'Score: $'
 MSCLIN: DB      '  Lines: $'
