@@ -3,7 +3,7 @@
 ; TETDATA.MAC - Data tables and game state variables
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.02
+; Version: 1.03
 ; Pure data module: rotation tables, color/speed/score
 ; tables, board array, and all shared game variables.
 ;
@@ -13,10 +13,11 @@
 ;--------------------------------------------------------------
 ; Public declarations - all symbols used by other modules
 ;--------------------------------------------------------------
-        PUBLIC  ROTIDX,ROTMAX,PCTBL
+        PUBLIC  ROTIDX,ROTMAX,PCTBL,KICKTBL
         PUBLIC  SPDTBL,SCRTBL
         PUBLIC  BOARD
-        PUBLIC  PCTYPE,PCROT,PCCOL,PCROW,PCCLR,PCNEXT
+        PUBLIC  PCTYPE,PCROT,PCCOL,PCROW,PCCLR,PCNEXT,PCHOLD,HOLDOK
+        PUBLIC  GCTBL,GSTROW
         PUBLIC  SCORE,LINES,LEVEL
         PUBLIC  GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         PUBLIC  RNGSEED,DRPFLG
@@ -46,12 +47,27 @@ WHITE   EQU     15
 ; where dc = column offset, dr = row offset from pivot.
 ;--------------------------------------------------------------
 
-; I-piece: 2 rotation states
+; I-piece: 4 rotation states
 ROTI:
-        ; State 0: horizontal  X X X X
+        ; State 0: horizontal (row 0)
+        ;  X X X X
         DB      0,0, 1,0, 2,0, 3,0
-        ; State 1: vertical (column)
+        ; State 1: vertical (col 1)
+        ;  . X
+        ;  . X
+        ;  . X
+        ;  . X
         DB      1,0, 1,1, 1,2, 1,3
+        ; State 2: horizontal (row 1)
+        ;  . . . .
+        ;  X X X X
+        DB      0,1, 1,1, 2,1, 3,1
+        ; State 3: vertical (col 2)
+        ;  . . X
+        ;  . . X
+        ;  . . X
+        ;  . . X
+        DB      2,0, 2,1, 2,2, 2,3
 
 ; O-piece: 1 rotation state (square)
 ROTO:
@@ -76,25 +92,41 @@ ROTT:
         ;           X
         DB      0,0, 0,1, 1,1, 0,2
 
-; S-piece: 2 rotation states
+; S-piece: 4 rotation states
 ROTS:
-        ; State 0:    X X
-        ;           X X
+        ; State 0:  . X X
+        ;           X X .
         DB      1,0, 2,0, 0,1, 1,1
-        ; State 1:  X
+        ; State 1:  X .
         ;           X X
-        ;             X
+        ;           . X
         DB      0,0, 0,1, 1,1, 1,2
+        ; State 2:  . . .
+        ;           . X X
+        ;           X X .
+        DB      1,1, 2,1, 0,2, 1,2
+        ; State 3:  . X .
+        ;           . X X
+        ;           . . X
+        DB      1,0, 1,1, 2,1, 2,2
 
-; Z-piece: 2 rotation states
+; Z-piece: 4 rotation states
 ROTZ:
-        ; State 0:  X X
-        ;             X X
+        ; State 0:  X X .
+        ;           . X X
         DB      0,0, 1,0, 1,1, 2,1
-        ; State 1:    X
+        ; State 1:  . X
         ;           X X
-        ;           X
+        ;           X .
         DB      1,0, 0,1, 1,1, 0,2
+        ; State 2:  . . .
+        ;           X X .
+        ;           . X X
+        DB      0,1, 1,1, 1,2, 2,2
+        ; State 3:  . . X
+        ;           . X X
+        ;           . X .
+        DB      2,0, 1,1, 2,1, 1,2
 
 ; J-piece: 4 rotation states
 ROTJ:
@@ -148,13 +180,56 @@ ROTIDX:
 ; ROTMAX - Max rotation states per piece type
 ;--------------------------------------------------------------
 ROTMAX:
-        DB      2               ; I: 2 states
+        DB      4               ; I: 4 states
         DB      1               ; O: 1 state
         DB      4               ; T: 4 states
-        DB      2               ; S: 2 states
-        DB      2               ; Z: 2 states
+        DB      4               ; S: 4 states
+        DB      4               ; Z: 4 states
         DB      4               ; J: 4 states
         DB      4               ; L: 4 states
+
+;--------------------------------------------------------------
+; KICKTBL - SRS wall kick offset tables
+;
+; Each rotation transition has 5 kick tests (dc, dr pairs).
+; 10 bytes per from-state, indexed by current rotation.
+; Offsets are signed: dc = column shift, dr = row shift.
+;--------------------------------------------------------------
+KICKTBL:
+        DW      KICKI           ; 0: I-piece (unique kicks)
+        DW      KICKO           ; 1: O-piece (dummy)
+        DW      KICKJL          ; 2: T-piece
+        DW      KICKJL          ; 3: S-piece
+        DW      KICKJL          ; 4: Z-piece
+        DW      KICKJL          ; 5: J-piece
+        DW      KICKJL          ; 6: L-piece
+
+; JLSTZ kick data - shared by J, L, S, T, Z
+; 4 from-states x 5 tests x 2 bytes = 40 bytes
+KICKJL:
+        ; From state 0 (CW to 1)
+        DB       0, 0, -1, 0, -1, 1,  0,-2, -1,-2
+        ; From state 1 (CW to 2)
+        DB       0, 0,  1, 0,  1,-1,  0, 2,  1, 2
+        ; From state 2 (CW to 3)
+        DB       0, 0,  1, 0,  1, 1,  0,-2,  1,-2
+        ; From state 3 (CW to 0)
+        DB       0, 0, -1, 0, -1,-1,  0, 2, -1, 2
+
+; I-piece kick data - unique offsets
+KICKI:
+        ; From state 0 (CW to 1)
+        DB       0, 0, -2, 0,  1, 0, -2, 1,  1,-2
+        ; From state 1 (CW to 2)
+        DB       0, 0, -1, 0,  2, 0, -1,-2,  2, 1
+        ; From state 2 (CW to 3)
+        DB       0, 0,  2, 0, -1, 0,  2,-1, -1, 2
+        ; From state 3 (CW to 0)
+        DB       0, 0,  1, 0, -2, 0,  1, 2, -2,-1
+
+; O-piece kick data - never used (1 rotation state)
+KICKO:
+        DB       0, 0,  0, 0,  0, 0,  0, 0,  0, 0
 
 ;--------------------------------------------------------------
 ; PCTBL - Piece color table (Dazzler color values)
@@ -189,14 +264,14 @@ SPDTBL:
 ;--------------------------------------------------------------
 ; SCRTBL - Base score points per lines cleared
 ;
-; 16-bit words: 1 line=40, 2=100, 3=300, 4=1200
+; 16-bit words, Tetris Guideline values.
 ; Multiply by (level+1) for final score.
 ;--------------------------------------------------------------
 SCRTBL:
-        DW      40              ; 1 line (Single)
-        DW      100             ; 2 lines (Double)
-        DW      300             ; 3 lines (Triple)
-        DW      1200            ; 4 lines (Tetris)
+        DW      100             ; 1 line (Single)
+        DW      300             ; 2 lines (Double)
+        DW      500             ; 3 lines (Triple)
+        DW      800             ; 4 lines (Tetris)
 
 ;--------------------------------------------------------------
 ; Game Board
@@ -238,6 +313,20 @@ LNCOUNT:DB      0       ; Lines cleared this lock (0-4)
 GAMOVR: DB      0       ; Game over flag (0=playing)
 RNGSEED:DB      42      ; RNG seed (arbitrary init)
 DRPFLG: DB      0       ; Hard drop flag
+PCHOLD: DB      0FFH    ; Held piece type (0FFH=empty)
+HOLDOK: DB      1       ; Hold allowed flag (1=yes)
+
+;--------------------------------------------------------------
+; Ghost Piece
+;--------------------------------------------------------------
+GCTBL:  DB      6       ; I ghost = dim cyan
+        DB      3       ; O ghost = dim yellow
+        DB      5       ; T ghost = dim purple
+        DB      2       ; S ghost = dim green
+        DB      1       ; Z ghost = dim red
+        DB      4       ; J ghost = dim blue
+        DB      7       ; L ghost = grey
+GSTROW: DB      0       ; Ghost piece display row
 
         END
 

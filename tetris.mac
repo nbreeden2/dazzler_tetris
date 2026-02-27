@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.02
+; Version: 1.03
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -47,8 +47,9 @@
 ;--------------------------------------------------------------
 ; External - tetdraw.mac (rendering)
 ;--------------------------------------------------------------
-        EXTRN   DRAWBDR,DRWBOX,DRAWPC,ERSPC
-        EXTRN   DRWNXT,ERSNXT,REDRAW,DRAWLVL
+        EXTRN   DRAWBDR,DRWBOX,DRWHBX,DRAWPC,ERSPC
+        EXTRN   DRWNXT,ERSNXT,DRWHLD,REDRAW,DRAWLVL
+        EXTRN   DRWGST,ERSGST
         EXTRN   DLEVEL
 
 ;--------------------------------------------------------------
@@ -60,6 +61,8 @@
         EXTRN   SCORE,LINES,LEVEL
         EXTRN   GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         EXTRN   RNGSEED,SPDTBL,DRPFLG
+        EXTRN   PCHOLD,HOLDOK
+        EXTRN   GSTROW
 
 ;--------------------------------------------------------------
 ; CP/M equates
@@ -166,6 +169,9 @@ PARSED:
         ; Draw next-piece preview box
         CALL    DRWBOX
 
+        ; Draw hold piece box
+        CALL    DRWHBX
+
         ; Clear the board array (200 bytes)
         LXI     H,BOARD
         MVI     B,200
@@ -181,6 +187,10 @@ CLRBRD:
         STA     GAMOVR
         STA     LNCOUNT
         STA     DRPFLG
+        MVI     A,0FFH
+        STA     PCHOLD          ; No held piece
+        MVI     A,1
+        STA     HOLDOK          ; Hold allowed
         LXI     H,0
         SHLD    SCORE
         SHLD    LINES
@@ -218,6 +228,9 @@ CLRBRD:
 
         ; Print initial score line
         CALL    PRTSCR
+
+        ; Draw initial ghost piece
+        CALL    DRWGST
 
 ;--------------------------------------------------------------
 ; Main game loop
@@ -261,6 +274,10 @@ GAMELP:
         JZ      DOSOFT
         CPI     ' '
         JZ      DOHARD
+        CPI     'e'
+        JZ      DOHOLD
+        CPI     'E'
+        JZ      DOHOLD
         CPI     'q'
         JZ      DOQUIT
         CPI     'Q'
@@ -268,19 +285,26 @@ GAMELP:
         JMP     NOGRAV          ; Unrecognized key
 
 DOLEFT:
+        CALL    ERSGST
         CALL    MOVELFT
+        CALL    DRWGST
         JMP     NOGRAV
 
 DORIGHT:
+        CALL    ERSGST
         CALL    MOVERGT
+        CALL    DRWGST
         JMP     NOGRAV
 
 DOROT:
+        CALL    ERSGST
         CALL    ROTATE
+        CALL    DRWGST
         JMP     NOGRAV
 
 DOSOFT:
         ; Soft drop: move down + 1 point
+        CALL    ERSGST
         CALL    MOVEDN
         JNZ     DOLOCK          ; Blocked: lock piece
         ; Moved: add 1 point
@@ -288,16 +312,88 @@ DOSOFT:
         INX     H
         SHLD    SCORE
         CALL    PRTSCR          ; Update display
+        CALL    DRWGST
         JMP     NOGRAV
 
 DOHARD:
         ; Hard drop: instant drop then lock
+        CALL    ERSGST
         CALL    HARDDROP
         CALL    PRTSCR          ; Show drop pts
         JMP     DOLOCK          ; Always lock after
 
 DOQUIT:
         JMP     QUIT
+
+;--------------------------------------------------------------
+; Hold piece
+;--------------------------------------------------------------
+DOHOLD:
+        LDA     HOLDOK
+        ORA     A
+        JZ      NOGRAV          ; Already held this turn
+        XRA     A
+        STA     HOLDOK          ; Lock hold for this turn
+        CALL    ERSGST          ; Erase ghost
+        CALL    ERSPC           ; Erase piece from field
+        LDA     PCHOLD
+        CPI     0FFH
+        JZ      HOLDEMP         ; Hold slot empty
+
+        ; --- Swap current and held ---
+        LDA     PCTYPE
+        MOV     B,A             ; B = old current
+        LDA     PCHOLD
+        STA     PCTYPE          ; current = held
+        MOV     A,B
+        STA     PCHOLD          ; held = old current
+
+        ; Look up color
+        LDA     PCTYPE
+        MOV     E,A
+        MVI     D,0
+        LXI     H,PCTBL
+        DAD     D
+        MOV     A,M
+        STA     PCCLR
+
+        ; Reset spawn position
+        MVI     A,3
+        STA     PCCOL
+        XRA     A
+        STA     PCROW
+        STA     PCROT
+
+        ; Test collision at spawn
+        LXI     B,0             ; B=rot=0
+        LDA     PCCOL
+        MOV     C,A
+        LDA     PCROW
+        MOV     D,A
+        LDA     PCTYPE
+        CALL    COLLIDE
+        JNZ     HLDDIE          ; Blocked = game over
+        CALL    DRAWPC
+        CALL    DRWGST          ; Draw ghost for swapped piece
+        CALL    DRWHLD          ; Update hold display
+        JMP     NOGRAV
+
+HOLDEMP:
+        ; First hold: stash current, spawn from next queue
+        LDA     PCTYPE
+        STA     PCHOLD
+        CALL    SPAWN
+        LDA     GAMOVR
+        ORA     A
+        JNZ     GAMEOVER
+        CALL    DRWGST          ; Draw ghost for spawned piece
+        CALL    DRWHLD          ; Update hold display
+        JMP     NOGRAV
+
+HLDDIE:
+        MVI     A,1
+        STA     GAMOVR
+        JMP     GAMEOVER
 
 ;--------------------------------------------------------------
 ; Gravity processing
@@ -340,8 +436,11 @@ GFIRE:
         STA     GRAVCNT
 
         ; Try to move piece down
+        CALL    ERSGST
         CALL    MOVEDN
-        JZ      GAMELP          ; Moved: continue
+        JNZ     DOLOCK          ; Blocked: lock piece
+        CALL    DRWGST
+        JMP     GAMELP
 
         ; Piece can't move down: lock it
 DOLOCK:
@@ -389,6 +488,13 @@ NOLINE:
 
         ; Draw next piece preview
         CALL    DRWNXT
+
+        ; Re-enable hold for new piece
+        MVI     A,1
+        STA     HOLDOK
+
+        ; Draw ghost for new piece
+        CALL    DRWGST
 
         JMP     GAMELP
 
@@ -445,32 +551,105 @@ SPNDIE:
         RET
 
 ;--------------------------------------------------------------
-; RANDOM - Generate random piece index 0-6
+; RANDOM - Get next piece from 7-bag randomizer
 ;
-; 8-bit LFSR with reject sampling.
+; Deals pieces from a shuffled bag of all 7 types.
+; When bag is exhausted, refills and shuffles.
 ; Exit:   A = piece index (0-6)
-; Uses:   A
+; Uses:   All registers (when refilling)
 ;--------------------------------------------------------------
 RANDOM:
-        PUSH    B
-RAND1:
-        LDA     RNGSEED
-        ; LFSR: x^8+x^6+x^5+x^4+1
-        ; Tap bits 7,5,4,3
-        MOV     B,A             ; Save current
-        RLC                     ; Rotate left
-        XRA     B               ; XOR with original
-        RLC                     ; Another shift
-        XRA     B               ; More mixing
-        INR     A               ; Avoid stuck at 0
-        STA     RNGSEED
+        LDA     BAGIDX
+        CPI     7               ; Bag exhausted?
+        JC      BAGOK
+        CALL    FILLBAG         ; Refill and shuffle
+        XRA     A               ; Reset index to 0
+BAGOK:
+        ; Return BAG[index], advance index
+        MOV     E,A
+        INR     A
+        STA     BAGIDX
+        MVI     D,0
+        LXI     H,BAG
+        DAD     D
+        MOV     A,M             ; A = piece type (0-6)
+        RET
 
-        ; Reduce to 0-6 via rejection
-        ANI     07H             ; 0-7
+;--------------------------------------------------------------
+; FILLBAG - Fill bag with 0-6 and Fisher-Yates shuffle
+;
+; Uses RNGSEED (LFSR) as entropy source.
+; Uses:   All registers
+;--------------------------------------------------------------
+FILLBAG:
+        ; Fill BAG[0..6] = 0,1,2,3,4,5,6
+        LXI     H,BAG
+        XRA     A
+FBFILL: MOV     M,A
+        INX     H
+        INR     A
         CPI     7
-        JNC     RAND1           ; Reject 7, retry
+        JC      FBFILL
 
-        POP     B
+        ; Fisher-Yates shuffle: for i=6 downto 1
+        MVI     A,6
+        STA     FBCNT
+FBLP:
+        ; Step LFSR for random byte
+        LDA     RNGSEED
+        MOV     B,A
+        RLC
+        XRA     B
+        RLC
+        XRA     B
+        INR     A
+        STA     RNGSEED
+        MOV     B,A             ; B = random byte
+
+        ; j = B mod (i+1)
+        LDA     FBCNT
+        INR     A               ; A = i+1
+        MOV     C,A             ; C = divisor
+        MOV     A,B             ; A = random byte
+FBMOD:  CMP     C
+        JC      FBSWP           ; A < C: done
+        SUB     C
+        JMP     FBMOD
+
+FBSWP:
+        ; A = j; swap BAG[i] and BAG[j]
+        STA     FBJTMP
+
+        ; Load BAG[j]
+        MOV     E,A
+        MVI     D,0
+        LXI     H,BAG
+        DAD     D
+        MOV     B,M             ; B = BAG[j]
+
+        ; Load BAG[i], store BAG[j] there
+        LDA     FBCNT
+        MOV     E,A
+        MVI     D,0
+        LXI     H,BAG
+        DAD     D
+        MOV     C,M             ; C = BAG[i]
+        MOV     M,B             ; BAG[i] = BAG[j]
+
+        ; Store old BAG[i] at BAG[j]
+        LDA     FBJTMP
+        MOV     E,A
+        MVI     D,0
+        LXI     H,BAG
+        DAD     D
+        MOV     M,C             ; BAG[j] = old BAG[i]
+
+        ; Next i
+        LDA     FBCNT
+        DCR     A
+        STA     FBCNT
+        JNZ     FBLP
+
         RET
 
 ;--------------------------------------------------------------
@@ -650,12 +829,14 @@ PRTCH:
 ; Console message strings
 ;--------------------------------------------------------------
 MSGSTRT:
-        DB      'TETRIS for Cromemco Dazzler v1.02'
+        DB      'TETRIS for Cromemco Dazzler v1.03'
         DB      13,10,'$'
 
 MSGCTRL:
         DB      'A=Left D=Right W=Rotate '
-        DB      'S=Drop SPACE=Hard Q=Quit'
+        DB      'S=Drop SPACE=Hard'
+        DB      13,10
+        DB      'E=Hold Q=Quit'
         DB      13,10,10,'$'
 
 MSGGO:
@@ -683,6 +864,12 @@ MSGNL:
         IF      SPDMODE EQ 1
 PRESCL: DB      5               ; Base prescaler (set by parser)
         ENDIF
+
+; 7-bag randomizer state
+BAG:    DB      0,1,2,3,4,5,6  ; Piece bag
+BAGIDX: DB      7               ; Index (7=refill needed)
+FBCNT:  DB      0               ; Shuffle loop counter
+FBJTMP: DB      0               ; Shuffle swap temp
 
 MSCSCO: DB      'Score: $'
 MSCLIN: DB      '  Lines: $'

@@ -3,7 +3,7 @@
 ; TETMOVE.MAC - Movement, collision, locking, lines, score
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.02
+; Version: 1.03
 ;
 ; Assembler: Microsoft M80
 ;--------------------------------------------------------------
@@ -19,7 +19,7 @@
         EXTRN   ERSPC,DRAWPC
         EXTRN   BOARD
         EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
-        EXTRN   ROTIDX,ROTMAX,PCTBL
+        EXTRN   ROTIDX,ROTMAX,PCTBL,KICKTBL
         EXTRN   SPDTBL,SCRTBL
         EXTRN   SCORE,LINES,LEVEL
         EXTRN   GRAVCNT,GRAVMAX,LNCOUNT,DRPFLG
@@ -247,8 +247,9 @@ MOVEDN:
         ; (MDBLK removed: uses shared BLKRET)
 
 ;--------------------------------------------------------------
-; ROTATE - Rotate piece clockwise
+; ROTATE - Rotate piece clockwise with SRS wall kicks
 ;
+; Tries 5 kick positions per SRS offset tables.
 ; Exit:   Z = rotated, NZ = blocked
 ; Uses:   All registers
 ;--------------------------------------------------------------
@@ -271,24 +272,83 @@ ROTATE:
 ROT1:
         STA     ROTNEW          ; Save new rotation
 
-        ; Test collision at new rotation
+        ; Look up kick table for this piece type
+        LDA     PCTYPE
+        ADD     A               ; type*2 (word index)
+        MOV     E,A
+        MVI     D,0
+        LXI     H,KICKTBL
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M             ; DE = kick data base
+
+        ; Index by current rotation state * 10
+        LDA     PCROT
+        MOV     C,A             ; Save rot
+        ADD     A               ; rot*2
+        ADD     A               ; rot*4
+        ADD     A               ; rot*8
+        ADD     C               ; rot*9
+        ADD     C               ; rot*10
+        MOV     L,A
+        MVI     H,0
+        DAD     D               ; HL = kick entry
+        SHLD    ROTKP           ; Save pointer
+
+        ; Try 5 kick tests
+        MVI     A,5
+        STA     ROTKN
+ROTLP:
+        LHLD    ROTKP
+        MOV     B,M             ; B = kick dc
+        INX     H
+        MOV     C,M             ; C = kick dr
+        INX     H
+        SHLD    ROTKP           ; Advance pointer
+
+        ; test_col = PCCOL + dc
+        LDA     PCCOL
+        ADD     B
+        STA     ROTTC
+
+        ; test_row = PCROW + dr
+        LDA     PCROW
+        ADD     C
+        STA     ROTTR
+
+        ; Test collision at kicked position
         LDA     PCTYPE
         PUSH    PSW
         LDA     ROTNEW
         MOV     B,A             ; B = new rotation
-        LDA     PCCOL
-        MOV     C,A
-        LDA     PCROW
-        MOV     D,A
+        LDA     ROTTC
+        MOV     C,A             ; C = test column
+        LDA     ROTTR
+        MOV     D,A             ; D = test row
         POP     PSW             ; A = type
         CALL    COLLIDE
-        JNZ     BLKRET
+        JZ      ROTSUC          ; No collision: kick OK
 
-        ; Success: update rotation
+        ; This kick failed, try next
+        LDA     ROTKN
+        DCR     A
+        STA     ROTKN
+        JNZ     ROTLP
+
+        ; All 5 kicks failed
+        JMP     BLKRET
+
+ROTSUC:
+        ; Apply kick: update position and rotation
         LDA     ROTNEW
         STA     PCROT
+        LDA     ROTTC
+        STA     PCCOL
+        LDA     ROTTR
+        STA     PCROW
         CALL    DRAWPC
-        XRA     A
+        XRA     A               ; Z set (success)
         RET
 
 ;--------------------------------------------------------------
@@ -303,6 +363,10 @@ BLKRET:
         RET
 
 ROTNEW: DB      0               ; Candidate rotation
+ROTKP:  DW      0               ; Kick test data pointer
+ROTKN:  DB      0               ; Kick tests remaining
+ROTTC:  DB      0               ; Kick test column
+ROTTR:  DB      0               ; Kick test row
 
 ;--------------------------------------------------------------
 ; HARDDROP - Instant drop to lowest position

@@ -3,7 +3,7 @@
 ; TETDRAW.MAC - All Dazzler drawing operations for Tetris
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.02
+; Version: 1.03
 ; Handles playfield border, cell drawing, piece rendering,
 ; next-piece preview, board redraw, and level indicator.
 ;
@@ -13,16 +13,18 @@
 ;--------------------------------------------------------------
 ; Public and external declarations
 ;--------------------------------------------------------------
-        PUBLIC  DRAWBDR,DRWBOX
+        PUBLIC  DRAWBDR,DRWBOX,DRWHBX
         PUBLIC  DRAWPC,ERSPC
-        PUBLIC  DRWNXT,ERSNXT
+        PUBLIC  DRWNXT,ERSNXT,DRWHLD
+        PUBLIC  DRWGST,ERSGST
         PUBLIC  REDRAW,DRAWLVL
 
         EXTRN   DZLHLIN,DZLVLIN,DZLFRECT
         EXTRN   GETROT
         EXTRN   BOARD
         EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
-        EXTRN   PCNEXT,ROTIDX,PCTBL
+        EXTRN   PCNEXT,PCHOLD,ROTIDX,PCTBL
+        EXTRN   COLLIDE,GCTBL,GSTROW
 
 ; Color equates
 BLACK   EQU     0
@@ -45,9 +47,18 @@ NXBOXB  EQU     17      ; Next box bottom edge
 NXORGX  EQU     42      ; Preview piece pixel X origin
 NXORGY  EQU     5       ; Preview piece pixel Y origin
 
-; Level bar position
-LVLX    EQU     48      ; Level bar X start
-LVLXR   EQU     52      ; Level bar X end
+; Hold box position
+HDBOXX  EQU     40      ; Hold box left edge
+HDBOXY  EQU     19      ; Hold box top edge
+HDBOXR  EQU     55      ; Hold box right edge
+HDBOXB  EQU     34      ; Hold box bottom edge
+; Hold piece origin (inside box)
+HDORGX  EQU     42      ; Hold piece pixel X origin
+HDORGY  EQU     22      ; Hold piece pixel Y origin
+
+; Level bar position (left of preview/hold boxes)
+LVLX    EQU     33      ; Level bar X start
+LVLXR   EQU     37      ; Level bar X end
 LVLBOT  EQU     62      ; Level bar bottom Y
 LVLTOP  EQU     24      ; Level bar top limit Y
 
@@ -367,6 +378,305 @@ ERSNXT:
         MVI     E,NXBOXB-1
         MVI     A,BLACK
         JMP     DZLFRECT
+
+;--------------------------------------------------------------
+; DRWHBX - Draw hold piece box border
+;
+; Box at HDBOXX..HDBOXR, HDBOXY..HDBOXB, GREY outline
+; Uses: All registers
+;--------------------------------------------------------------
+DRWHBX:
+        ; Top
+        MVI     B,HDBOXX
+        MVI     C,HDBOXY
+        MVI     D,HDBOXR
+        MVI     A,GREY
+        CALL    DZLHLIN
+
+        ; Bottom
+        MVI     B,HDBOXX
+        MVI     C,HDBOXB
+        MVI     D,HDBOXR
+        MVI     A,GREY
+        CALL    DZLHLIN
+
+        ; Left
+        MVI     B,HDBOXX
+        MVI     C,HDBOXY
+        MVI     D,HDBOXB
+        MVI     A,GREY
+        CALL    DZLVLIN
+
+        ; Right
+        MVI     B,HDBOXR
+        MVI     C,HDBOXY
+        MVI     D,HDBOXB
+        MVI     A,GREY
+        CALL    DZLVLIN
+
+        RET
+
+;--------------------------------------------------------------
+; ERSHLD - Erase hold piece box interior
+;
+; Fills interior with BLACK.
+; Uses: All registers
+;--------------------------------------------------------------
+ERSHLD:
+        MVI     B,HDBOXX+1
+        MVI     C,HDBOXY+1
+        MVI     D,HDBOXR-1
+        MVI     E,HDBOXB-1
+        MVI     A,BLACK
+        JMP     DZLFRECT
+
+;--------------------------------------------------------------
+; DRWHLD - Draw held piece in hold box
+;
+; If PCHOLD = 0FFH (empty), just erases interior.
+; Otherwise draws piece at state 0 in hold box.
+; Uses: All registers
+;--------------------------------------------------------------
+DRWHLD:
+        ; Check if hold slot is empty
+        LDA     PCHOLD
+        CPI     0FFH
+        JNZ     DHLDRW
+        ; Empty: just erase and return
+        JMP     ERSHLD
+
+DHLDRW:
+        ; Erase interior
+        PUSH    PSW             ; Save piece type
+        CALL    ERSHLD
+        POP     PSW             ; A = piece type
+
+        ; Get rotation data for held piece, state 0
+        MOV     B,A             ; B = piece type
+        MVI     A,0             ; Rotation 0
+        CALL    GETROT          ; HL = rotation data
+
+        ; Look up color for held piece
+        LDA     PCHOLD
+        PUSH    H               ; Save rotation ptr
+        LXI     H,PCTBL
+        MOV     E,A
+        MVI     D,0
+        DAD     D               ; HL = &PCTBL[PCHOLD]
+        MOV     A,M             ; A = color
+        STA     HDCLR           ; Save color locally
+        POP     H               ; Restore rotation ptr
+
+        ; Draw 4 cells in hold area
+        MVI     D,4
+DHLD1:
+        PUSH    D
+        PUSH    H
+
+        MOV     A,M             ; dc
+        INX     H
+        MOV     E,M             ; dr
+
+        ; pixel_x = HDORGX + dc * 3
+        MOV     C,A             ; C = dc
+        ADD     A               ; dc*2
+        ADD     C               ; dc*3
+        ADI     HDORGX          ; pixel_x
+        MOV     B,A             ; B = x0
+
+        ; pixel_y = HDORGY + dr * 3
+        MOV     A,E             ; A = dr
+        MOV     C,A
+        ADD     A               ; dr*2
+        ADD     C               ; dr*3
+        ADI     HDORGY          ; pixel_y
+        MOV     C,A             ; C = y0
+
+        ; D = x0+2, E = y0+2
+        MOV     A,B
+        ADI     2
+        MOV     D,A
+        MOV     A,C
+        ADI     2
+        MOV     E,A
+
+        ; Draw filled rect
+        LDA     HDCLR
+        CALL    DZLFRECT
+
+        POP     H
+        INX     H
+        INX     H
+        POP     D
+        DCR     D
+        JNZ     DHLD1
+
+        RET
+
+; Local storage for hold piece color
+HDCLR:  DB      0
+
+;--------------------------------------------------------------
+; ERSGST - Erase ghost piece from playfield
+;
+; If GSTROW == PCROW, no ghost was drawn; returns immediately.
+; Otherwise erases 4 cells at ghost position in BLACK.
+; Must be called BEFORE moving/rotating the active piece.
+; Uses: All registers
+;--------------------------------------------------------------
+ERSGST:
+        LDA     GSTROW
+        MOV     B,A
+        LDA     PCROW
+        CMP     B
+        RZ                      ; No ghost drawn
+
+        ; Get rotation data
+        LDA     PCTYPE
+        MOV     B,A
+        LDA     PCROT
+        CALL    GETROT          ; HL = rotation data
+
+        ; Erase 4 ghost cells
+        MVI     D,4
+ERSG1:
+        PUSH    D
+        PUSH    H
+
+        MOV     A,M             ; dc
+        INX     H
+        MOV     E,M             ; dr
+
+        ; col = PCCOL + dc
+        MOV     C,A
+        LDA     PCCOL
+        ADD     C
+        MOV     B,A
+
+        CPI     10
+        JNC     ERSG2           ; Out of range
+
+        ; row = GSTROW + dr
+        LDA     GSTROW
+        ADD     E
+        MOV     C,A
+
+        CPI     20
+        JNC     ERSG2           ; Out of range
+
+        MVI     A,BLACK
+        CALL    DRAWCEL
+
+ERSG2:
+        POP     H
+        INX     H
+        INX     H
+        POP     D
+        DCR     D
+        JNZ     ERSG1
+
+        RET
+
+;--------------------------------------------------------------
+; DRWGST - Compute ghost row and draw ghost piece
+;
+; Finds the lowest valid row for the current piece and draws
+; it in the dim ghost color. Stores row in GSTROW.
+; If ghost row == piece row, nothing is drawn.
+; Uses: All registers
+;--------------------------------------------------------------
+DRWGST:
+        ; Start ghost at current piece row
+        LDA     PCROW
+        STA     GSTROW
+
+        ; Find lowest valid row
+GSTLP:
+        LDA     GSTROW
+        INR     A
+        STA     GSTTMP          ; Candidate row
+
+        ; Test collision at candidate row
+        MOV     D,A             ; D = test row
+        LDA     PCROT
+        MOV     B,A             ; B = rotation
+        LDA     PCCOL
+        MOV     C,A             ; C = column
+        LDA     PCTYPE          ; A = type
+        CALL    COLLIDE
+        JNZ     GSTDN           ; Collision: GSTROW is final
+
+        ; No collision: advance ghost row
+        LDA     GSTTMP
+        STA     GSTROW
+        JMP     GSTLP
+
+GSTDN:
+        ; If ghost row == piece row, no ghost to draw
+        LDA     GSTROW
+        MOV     B,A
+        LDA     PCROW
+        CMP     B
+        RZ                      ; Same row: skip
+
+        ; Look up ghost color
+        LDA     PCTYPE
+        MOV     E,A
+        MVI     D,0
+        LXI     H,GCTBL
+        DAD     D
+        MOV     A,M             ; A = ghost color
+        STA     GSTCLR
+
+        ; Get rotation data
+        LDA     PCTYPE
+        MOV     B,A
+        LDA     PCROT
+        CALL    GETROT          ; HL = rotation data
+
+        ; Draw 4 ghost cells
+        MVI     D,4
+GSTD1:
+        PUSH    D
+        PUSH    H
+
+        MOV     A,M             ; dc
+        INX     H
+        MOV     E,M             ; dr
+
+        ; col = PCCOL + dc
+        MOV     C,A
+        LDA     PCCOL
+        ADD     C
+        MOV     B,A
+
+        CPI     10
+        JNC     GSTD2           ; Out of range
+
+        ; row = GSTROW + dr
+        LDA     GSTROW
+        ADD     E
+        MOV     C,A
+
+        CPI     20
+        JNC     GSTD2           ; Out of range
+
+        LDA     GSTCLR
+        CALL    DRAWCEL
+
+GSTD2:
+        POP     H
+        INX     H
+        INX     H
+        POP     D
+        DCR     D
+        JNZ     GSTD1
+
+        RET
+
+; Ghost local variables
+GSTTMP: DB      0               ; Candidate ghost row
+GSTCLR: DB      0               ; Ghost color
 
 ;--------------------------------------------------------------
 ; REDRAW - Redraw the entire playfield from BOARD array
