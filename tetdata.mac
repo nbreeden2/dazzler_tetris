@@ -3,7 +3,7 @@
 ; TETDATA.MAC - Data tables and game state variables
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.04
+; Version: 1.05
 ; Pure data module: rotation tables, color/speed/score
 ; tables, board array, and all shared game variables.
 ;
