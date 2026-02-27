@@ -3,7 +3,7 @@
 ; TETMOVE.MAC - Movement, collision, locking, lines, score
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.03
+; Version: 1.04
 ;
 ; Assembler: Microsoft M80
 ;--------------------------------------------------------------
@@ -13,13 +13,13 @@
 ;--------------------------------------------------------------
         PUBLIC  GETROT,COLLIDE
         PUBLIC  MOVELFT,MOVERGT,MOVEDN
-        PUBLIC  ROTATE,HARDDROP
+        PUBLIC  ROTATE,ROTCCW,HARDDROP
         PUBLIC  LOCKPC,CLRLINE,ADDSCORE,UPDLVL
 
         EXTRN   ERSPC,DRAWPC
         EXTRN   BOARD
         EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
-        EXTRN   ROTIDX,ROTMAX,PCTBL,KICKTBL
+        EXTRN   ROTIDX,ROTMAX,PCTBL,KICKTBL,KICKCCW
         EXTRN   SPDTBL,SCRTBL
         EXTRN   SCORE,LINES,LEVEL
         EXTRN   GRAVCNT,GRAVMAX,LNCOUNT,DRPFLG
@@ -352,6 +352,61 @@ ROTSUC:
         RET
 
 ;--------------------------------------------------------------
+; ROTCCW - Rotate piece counter-clockwise with SRS wall kicks
+;
+; Tries 5 kick positions per CCW offset tables.
+; Shares ROTLP/ROTSUC/BLKRET with ROTATE.
+; Exit:   Z = rotated, NZ = blocked
+; Uses:   All registers
+;--------------------------------------------------------------
+ROTCCW:
+        CALL    ERSPC
+
+        ; Compute prev rotation: (rot-1+max) mod max
+        LDA     PCTYPE
+        MOV     E,A
+        MVI     D,0
+        LXI     H,ROTMAX
+        DAD     D
+        MOV     D,M             ; D = max states
+
+        LDA     PCROT
+        ORA     A
+        JNZ     RCCW1
+        MOV     A,D             ; rot=0 -> wrap to max
+RCCW1:
+        DCR     A
+        STA     ROTNEW
+
+        ; Look up CCW kick table for this piece type
+        LDA     PCTYPE
+        ADD     A               ; type*2 (word index)
+        MOV     E,A
+        MVI     D,0
+        LXI     H,KICKCCW
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M             ; DE = CCW kick data base
+
+        ; Index by current rotation state * 10
+        LDA     PCROT
+        MOV     C,A
+        ADD     A               ; rot*2
+        ADD     A               ; rot*4
+        ADD     A               ; rot*8
+        ADD     C               ; rot*9
+        ADD     C               ; rot*10
+        MOV     L,A
+        MVI     H,0
+        DAD     D               ; HL = kick entry
+        SHLD    ROTKP
+
+        MVI     A,5
+        STA     ROTKN
+        JMP     ROTLP           ; Shared kick loop
+
+;--------------------------------------------------------------
 ; BLKRET - Shared blocked return for movement functions
 ;
 ; Redraws piece at current position and returns NZ.
@@ -671,7 +726,12 @@ UL2:
         INR     B
         JMP     UL2
 UL3:
-        ; B = new level
+        ; B = new level (cap at 15)
+        MOV     A,B
+        CPI     16
+        JC      ULCAP
+        MVI     B,15
+ULCAP:
         LDA     LEVEL
         CMP     B
         RNC                     ; Already at/above

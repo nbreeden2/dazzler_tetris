@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.03
+; Version: 1.04
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -22,7 +22,8 @@
 ;
 ; Controls:
 ;   A = Move left    D = Move right
-;   W = Rotate CW    S = Soft drop
+;   W = Rotate CW    R = Rotate CCW
+;   S = Soft drop    E = Hold
 ;   SPACE = Hard drop    Q = Quit
 ;--------------------------------------------------------------
 
@@ -41,7 +42,7 @@
 ;--------------------------------------------------------------
         EXTRN   COLLIDE,GETROT
         EXTRN   MOVELFT,MOVERGT,MOVEDN
-        EXTRN   ROTATE,HARDDROP
+        EXTRN   ROTATE,ROTCCW,HARDDROP
         EXTRN   LOCKPC,CLRLINE,ADDSCORE,UPDLVL
 
 ;--------------------------------------------------------------
@@ -78,6 +79,7 @@ DIRCON  EQU     06H             ; Direct console I/O
 ;   2 = Hardcoded 2MHz
 ;   3 = Hardcoded 4MHz
 SPDMODE EQU     1
+LCKMAX  EQU     128             ; Lock delay counter reset
 
 ; CP/M command tail (used by SPDMODE 1)
 CMDLEN  EQU     0080H           ; Command tail length
@@ -187,6 +189,8 @@ CLRBRD:
         STA     GAMOVR
         STA     LNCOUNT
         STA     DRPFLG
+        STA     COMBO
+        STA     LOCKING         ; Not in lock state
         MVI     A,0FFH
         STA     PCHOLD          ; No held piece
         MVI     A,1
@@ -268,6 +272,10 @@ GAMELP:
         JZ      DOROT
         CPI     'W'
         JZ      DOROT
+        CPI     'r'
+        JZ      DOROTC
+        CPI     'R'
+        JZ      DOROTC
         CPI     's'
         JZ      DOSOFT
         CPI     'S'
@@ -287,18 +295,28 @@ GAMELP:
 DOLEFT:
         CALL    ERSGST
         CALL    MOVELFT
+        CZ      LKRST           ; Reset lock delay if moved
         CALL    DRWGST
         JMP     NOGRAV
 
 DORIGHT:
         CALL    ERSGST
         CALL    MOVERGT
+        CZ      LKRST           ; Reset lock delay if moved
         CALL    DRWGST
         JMP     NOGRAV
 
 DOROT:
         CALL    ERSGST
         CALL    ROTATE
+        CZ      LKRST           ; Reset lock delay if rotated
+        CALL    DRWGST
+        JMP     NOGRAV
+
+DOROTC:
+        CALL    ERSGST
+        CALL    ROTCCW
+        CZ      LKRST           ; Reset lock delay if rotated
         CALL    DRWGST
         JMP     NOGRAV
 
@@ -306,18 +324,26 @@ DOSOFT:
         ; Soft drop: move down + 1 point
         CALL    ERSGST
         CALL    MOVEDN
-        JNZ     DOLOCK          ; Blocked: lock piece
-        ; Moved: add 1 point
+        JNZ     SDBLK           ; Blocked: lock delay handles it
+        ; Moved: cancel lock state, add 1 point
+        XRA     A
+        STA     LOCKING
         LHLD    SCORE
         INX     H
         SHLD    SCORE
         CALL    PRTSCR          ; Update display
         CALL    DRWGST
         JMP     NOGRAV
+SDBLK:
+        ; Can't move down - lock delay timer handles it
+        CALL    DRWGST
+        JMP     NOGRAV
 
 DOHARD:
         ; Hard drop: instant drop then lock
         CALL    ERSGST
+        XRA     A
+        STA     LOCKING         ; Cancel lock delay
         CALL    HARDDROP
         CALL    PRTSCR          ; Show drop pts
         JMP     DOLOCK          ; Always lock after
@@ -334,6 +360,7 @@ DOHOLD:
         JZ      NOGRAV          ; Already held this turn
         XRA     A
         STA     HOLDOK          ; Lock hold for this turn
+        STA     LOCKING         ; Cancel lock delay
         CALL    ERSGST          ; Erase ghost
         CALL    ERSPC           ; Erase piece from field
         LDA     PCHOLD
@@ -396,9 +423,77 @@ HLDDIE:
         JMP     GAMEOVER
 
 ;--------------------------------------------------------------
-; Gravity processing
+; LKRST - Reset lock delay on successful move/rotate
+;
+; Called via CZ (Z flag set = move succeeded).
+; Resets lock timer if in lock state and resets remain.
+; Uses:   A
+;--------------------------------------------------------------
+LKRST:
+        LDA     LOCKING
+        ORA     A
+        RZ                      ; Not in lock state
+        LDA     LOCKMVS
+        ORA     A
+        RZ                      ; No resets left
+        DCR     A
+        STA     LOCKMVS
+        MVI     A,LCKMAX
+        STA     LOCKDLY
+        IF      SPDMODE EQ 1
+        LDA     PRESCL
+        ENDIF
+        IF      SPDMODE EQ 2
+        MVI     A,5
+        ENDIF
+        IF      SPDMODE EQ 3
+        MVI     A,10
+        ENDIF
+        STA     LOCKPRE
+        RET
+
+;--------------------------------------------------------------
+; Gravity and lock delay processing
 ;--------------------------------------------------------------
 NOGRAV:
+        ; Lock delay tick
+        LDA     LOCKING
+        ORA     A
+        JZ      LKDONE          ; Not in lock state
+        LDA     LOCKDLY
+        DCR     A
+        STA     LOCKDLY
+        JNZ     LKDONE          ; Counter not zero
+        ; Counter hit zero - check prescaler
+        LDA     LOCKPRE
+        DCR     A
+        STA     LOCKPRE
+        JNZ     LKCONT          ; Prescaler not done
+        ; Lock delay expired - verify piece still resting
+        LDA     PCTYPE
+        PUSH    PSW
+        LDA     PCROT
+        MOV     B,A
+        LDA     PCCOL
+        MOV     C,A
+        LDA     PCROW
+        INR     A
+        MOV     D,A             ; D = row+1
+        POP     PSW             ; A = type
+        CALL    COLLIDE
+        JNZ     LKLOCK          ; Still blocked: lock now
+        ; Not blocked: piece can fall, cancel lock
+        XRA     A
+        STA     LOCKING
+        JMP     GAMELP
+LKLOCK:
+        XRA     A
+        STA     LOCKING
+        JMP     DOLOCK
+LKCONT:
+        MVI     A,LCKMAX
+        STA     LOCKDLY
+LKDONE:
         ; Decrement gravity counter
         LDA     GRAVCNT
         DCR     A
@@ -438,13 +533,51 @@ GFIRE:
         ; Try to move piece down
         CALL    ERSGST
         CALL    MOVEDN
-        JNZ     DOLOCK          ; Blocked: lock piece
+        JNZ     GBLKED          ; Blocked
+        ; Moved: cancel lock state
+        XRA     A
+        STA     LOCKING
         CALL    DRWGST
         JMP     GAMELP
 
-        ; Piece can't move down: lock it
+GBLKED:
+        ; Piece resting on surface
+        LDA     LOCKING
+        ORA     A
+        JNZ     GBLK2           ; Already in lock delay
+        ; Start lock delay
+        MVI     A,1
+        STA     LOCKING
+        MVI     A,LCKMAX
+        STA     LOCKDLY
+        IF      SPDMODE EQ 1
+        LDA     PRESCL
+        ENDIF
+        IF      SPDMODE EQ 2
+        MVI     A,5
+        ENDIF
+        IF      SPDMODE EQ 3
+        MVI     A,10
+        ENDIF
+        STA     LOCKPRE
+        MVI     A,15
+        STA     LOCKMVS
+GBLK2:
+        CALL    DRWGST
+        JMP     GAMELP
+
+        ; Lock delay expired or hard drop: lock piece
 DOLOCK:
         CALL    LOCKPC
+
+        ; Lock out: if piece locked at top row, game over
+        LDA     PCROW
+        ORA     A
+        JNZ     NOTKOT          ; Row != 0: safe
+        MVI     A,1
+        STA     GAMOVR
+        JMP     GAMEOVER
+NOTKOT:
 
         ; Check and clear lines
         CALL    CLRLINE         ; A = lines cleared
@@ -454,10 +587,45 @@ DOLOCK:
         ORA     A
         JZ      NOLINE
 
-        ; Add score
+        ; Add base score
         POP     PSW
         PUSH    PSW
         CALL    ADDSCORE
+
+        ; Add combo bonus: 50 * COMBO * (LEVEL+1)
+        LDA     COMBO
+        ORA     A
+        JZ      NOCMB           ; First clear: no bonus
+
+        ; HL = 50 * COMBO
+        MOV     B,A             ; B = COMBO
+        LXI     H,0
+        LXI     D,50
+CMBLP1: DAD     D
+        DCR     B
+        JNZ     CMBLP1
+
+        ; HL = HL * (LEVEL+1)
+        XCHG                    ; DE = 50*COMBO
+        LDA     LEVEL
+        INR     A
+        MOV     B,A             ; B = level+1
+        LXI     H,0
+CMBLP2: DAD     D
+        DCR     B
+        JNZ     CMBLP2
+
+        ; Add bonus to score
+        XCHG
+        LHLD    SCORE
+        DAD     D
+        SHLD    SCORE
+
+NOCMB:
+        ; Increment combo counter
+        LDA     COMBO
+        INR     A
+        STA     COMBO
 
         ; Update level
         POP     PSW
@@ -471,8 +639,14 @@ DOLOCK:
         LDA     LEVEL
         STA     DLEVEL
         CALL    DRAWLVL
+        JMP     NOLN2
 
 NOLINE:
+        ; No lines cleared: reset combo
+        XRA     A
+        STA     COMBO
+
+NOLN2:
         POP     PSW             ; Discard/clean stack
 
         ; Print updated score
@@ -502,7 +676,8 @@ NOLINE:
 ; SPAWN - Spawn a new piece
 ;
 ; Current = next, generate new next.
-; Spawn at col=3, row=0. Test collision for game over.
+; Per-piece spawn column (O centered at 4, others at 3).
+; Spawn at row=0, rotation=0. Test collision for game over.
 ;--------------------------------------------------------------
 SPAWN:
         ; Current piece = next
@@ -517,9 +692,14 @@ SPAWN:
         MOV     A,M
         STA     PCCLR
 
-        ; Set spawn position
-        MVI     A,3
-        STA     PCCOL           ; Column 3 (centered)
+        ; Set spawn position (per-piece column)
+        LDA     PCTYPE
+        MOV     E,A
+        MVI     D,0
+        LXI     H,SPNCOL
+        DAD     D
+        MOV     A,M
+        STA     PCCOL           ; Piece-specific column
         XRA     A
         STA     PCROW           ; Row 0 (top)
         STA     PCROT           ; Rotation 0
@@ -829,14 +1009,15 @@ PRTCH:
 ; Console message strings
 ;--------------------------------------------------------------
 MSGSTRT:
-        DB      'TETRIS for Cromemco Dazzler v1.03'
+        DB      'TETRIS for Cromemco Dazzler v1.04'
         DB      13,10,'$'
 
 MSGCTRL:
-        DB      'A=Left D=Right W=Rotate '
-        DB      'S=Drop SPACE=Hard'
+        DB      'A=Left D=Right W=CW R=CCW'
         DB      13,10
-        DB      'E=Hold Q=Quit'
+        DB      'S=Drop SPACE=Hard E=Hold'
+        DB      13,10
+        DB      'Q=Quit'
         DB      13,10,10,'$'
 
 MSGGO:
@@ -870,6 +1051,22 @@ BAG:    DB      0,1,2,3,4,5,6  ; Piece bag
 BAGIDX: DB      7               ; Index (7=refill needed)
 FBCNT:  DB      0               ; Shuffle loop counter
 FBJTMP: DB      0               ; Shuffle swap temp
+COMBO:  DB      0               ; Combo counter (consecutive clears)
+
+; Lock delay state
+LOCKING:DB      0               ; 0=falling, 1=resting
+LOCKDLY:DB      0               ; Lock delay counter
+LOCKPRE:DB      0               ; Lock delay prescaler
+LOCKMVS:DB      15              ; Move resets remaining
+
+; Per-piece spawn columns (Guideline centering)
+SPNCOL: DB      3               ; I: col 3 (cols 3-6)
+        DB      4               ; O: col 4 (cols 4-5)
+        DB      3               ; T: col 3 (cols 3-5)
+        DB      3               ; S: col 3 (cols 3-5)
+        DB      3               ; Z: col 3 (cols 3-5)
+        DB      3               ; J: col 3 (cols 3-5)
+        DB      3               ; L: col 3 (cols 3-5)
 
 MSCSCO: DB      'Score: $'
 MSCLIN: DB      '  Lines: $'

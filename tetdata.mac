@@ -3,7 +3,7 @@
 ; TETDATA.MAC - Data tables and game state variables
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.03
+; Version: 1.04
 ; Pure data module: rotation tables, color/speed/score
 ; tables, board array, and all shared game variables.
 ;
@@ -13,7 +13,7 @@
 ;--------------------------------------------------------------
 ; Public declarations - all symbols used by other modules
 ;--------------------------------------------------------------
-        PUBLIC  ROTIDX,ROTMAX,PCTBL,KICKTBL
+        PUBLIC  ROTIDX,ROTMAX,PCTBL,KICKTBL,KICKCCW
         PUBLIC  SPDTBL,SCRTBL
         PUBLIC  BOARD
         PUBLIC  PCTYPE,PCROT,PCCOL,PCROW,PCCLR,PCNEXT,PCHOLD,HOLDOK
@@ -230,6 +230,43 @@ KICKI:
 ; O-piece kick data - never used (1 rotation state)
 KICKO:
         DB       0, 0,  0, 0,  0, 0,  0, 0,  0, 0
+
+;--------------------------------------------------------------
+; KICKCCW - CCW wall kick offset tables
+;
+; Derived by negating CW kicks for the reverse transition.
+; CCW from state S = -(CW from state S-1).
+;--------------------------------------------------------------
+KICKCCW:
+        DW      KCKIC           ; 0: I-piece
+        DW      KICKO           ; 1: O-piece (dummy)
+        DW      KCKJLC          ; 2: T-piece
+        DW      KCKJLC          ; 3: S-piece
+        DW      KCKJLC          ; 4: Z-piece
+        DW      KCKJLC          ; 5: J-piece
+        DW      KCKJLC          ; 6: L-piece
+
+; JLSTZ CCW kick data
+KCKJLC:
+        ; From state 0 (CCW to 3): negate CW 3->0
+        DB       0, 0,  1, 0,  1, 1,  0,-2,  1,-2
+        ; From state 1 (CCW to 0): negate CW 0->1
+        DB       0, 0,  1, 0,  1,-1,  0, 2,  1, 2
+        ; From state 2 (CCW to 1): negate CW 1->2
+        DB       0, 0, -1, 0, -1, 1,  0,-2, -1,-2
+        ; From state 3 (CCW to 2): negate CW 2->3
+        DB       0, 0, -1, 0, -1,-1,  0, 2, -1, 2
+
+; I-piece CCW kick data
+KCKIC:
+        ; From state 0 (CCW to 3): negate CW 3->0
+        DB       0, 0, -1, 0,  2, 0, -1,-2,  2, 1
+        ; From state 1 (CCW to 0): negate CW 0->1
+        DB       0, 0,  2, 0, -1, 0,  2,-1, -1, 2
+        ; From state 2 (CCW to 1): negate CW 1->2
+        DB       0, 0,  1, 0, -2, 0,  1, 2, -2,-1
+        ; From state 3 (CCW to 2): negate CW 2->3
+        DB       0, 0, -2, 0,  1, 0, -2, 1,  1,-2
 
 ;--------------------------------------------------------------
 ; PCTBL - Piece color table (Dazzler color values)

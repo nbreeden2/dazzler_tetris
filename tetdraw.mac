@@ -3,7 +3,7 @@
 ; TETDRAW.MAC - All Dazzler drawing operations for Tetris
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.03
+; Version: 1.04
 ; Handles playfield border, cell drawing, piece rendering,
 ; next-piece preview, board redraw, and level indicator.
 ;
