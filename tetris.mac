@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.05
+; Version: 1.06
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -86,7 +86,7 @@ CMDLEN  EQU     0080H           ; Command tail length
 CMDTAIL EQU     0081H           ; Command tail buffer
 
 ; Dazzler configuration
-DZLBASE EQU     0F000H          ; Frame buffer base
+DZLBASE EQU     08000H          ; Frame buffer base (48K safe)
 
 ; Color equates
 BLACK   EQU     0
@@ -1022,7 +1022,7 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.05'
+        DB      '     Cromemco Dazzler v1.06'
         DB      13,10,'$'
 
 MSGCTRL:

@@ -93,7 +93,7 @@ DZLPORT EQU     0EH             ; Base address control port
 DZLMODE EQU     0FH             ; Graphics mode control port
 
 ; Dazzler configuration
-DZLBASE EQU     0F000H          ; Frame buffer at F000H
+DZLBASE EQU     08000H          ; Frame buffer at 8000H (48K safe)
 DZLCFG  EQU     3FH             ; 64x64, 16-color, 2K, RGB
 
 ; Screen parameters (64x64 full screen)
