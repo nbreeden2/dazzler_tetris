@@ -3,7 +3,7 @@
 ; TETDRAW.MAC - All Dazzler drawing operations for Tetris
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.06
+; Version: 1.07
 ; Handles playfield border, cell drawing, piece rendering,
 ; next-piece preview, board redraw, and level indicator.
 ;
@@ -24,7 +24,7 @@
         EXTRN   BOARD
         EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
         EXTRN   PCNEXT,PCHOLD,ROTIDX,PCTBL
-        EXTRN   COLLIDE,GCTBL,GSTROW
+        EXTRN   COLLIDE,GCTBL,GSTROW,GSTMOD
 
 ; Color equates
 BLACK   EQU     0
@@ -620,12 +620,19 @@ GSTDN:
         RZ                      ; Same row: skip
 
         ; Look up ghost color
+        LDA     GSTMOD
+        ORA     A
+        JNZ     GSTCM           ; Color mode
+        MVI     A,7             ; Grey mode (default)
+        JMP     GSTSAV
+GSTCM:
         LDA     PCTYPE
         MOV     E,A
         MVI     D,0
         LXI     H,GCTBL
         DAD     D
-        MOV     A,M             ; A = ghost color
+        MOV     A,M             ; A = per-piece ghost color
+GSTSAV:
         STA     GSTCLR
 
         ; Get rotation data

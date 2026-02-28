@@ -3,7 +3,7 @@
 ; TETDATA.MAC - Data tables and game state variables
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.06
+; Version: 1.07
 ; Pure data module: rotation tables, color/speed/score
 ; tables, board array, and all shared game variables.
 ;
@@ -17,7 +17,7 @@
         PUBLIC  SPDTBL,SCRTBL
         PUBLIC  BOARD
         PUBLIC  PCTYPE,PCROT,PCCOL,PCROW,PCCLR,PCNEXT,PCHOLD,HOLDOK
-        PUBLIC  GCTBL,GSTROW
+        PUBLIC  GCTBL,GSTROW,GSTMOD
         PUBLIC  SCORE,LINES,LEVEL
         PUBLIC  GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         PUBLIC  RNGSEED,DRPFLG
@@ -75,22 +75,22 @@ ROTO:
         ;           X X
         DB      0,0, 1,0, 0,1, 1,1
 
-; T-piece: 4 rotation states
+; T-piece: 4 rotation states (SRS standard)
 ROTT:
-        ; State 0:  X X X
-        ;             X
-        DB      0,0, 1,0, 2,0, 1,1
-        ; State 1:    X
-        ;           X X
-        ;             X
-        DB      1,0, 0,1, 1,1, 1,2
-        ; State 2:    X
+        ; State 0:    X       (spawn: flat down)
         ;           X X X
         DB      1,0, 0,1, 1,1, 2,1
-        ; State 3:  X
+        ; State 1:  X         (CW from 0)
         ;           X X
         ;           X
         DB      0,0, 0,1, 1,1, 0,2
+        ; State 2:  X X X     (180 from 0)
+        ;             X
+        DB      0,0, 1,0, 2,0, 1,1
+        ; State 3:    X       (CCW from 0)
+        ;           X X
+        ;             X
+        DB      1,0, 0,1, 1,1, 1,2
 
 ; S-piece: 4 rotation states
 ROTS:
@@ -364,6 +364,7 @@ GCTBL:  DB      6       ; I ghost = dim cyan
         DB      4       ; J ghost = dim blue
         DB      7       ; L ghost = grey
 GSTROW: DB      0       ; Ghost piece display row
+GSTMOD: DB      0       ; Ghost mode (0=grey, 1=color)
 
         END
 

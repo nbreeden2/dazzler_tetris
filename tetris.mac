@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.06
+; Version: 1.07
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -22,7 +22,7 @@
 ;
 ; Controls:
 ;   A = Move left    D = Move right
-;   W = Rotate CW    R = Rotate CCW
+;   W = Rotate CCW   R = Rotate CW
 ;   S = Soft drop    E = Hold
 ;   SPACE = Hard drop    Q = Quit
 ;--------------------------------------------------------------
@@ -63,7 +63,7 @@
         EXTRN   GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         EXTRN   RNGSEED,SPDTBL,DRPFLG
         EXTRN   PCHOLD,HOLDOK
-        EXTRN   GSTROW
+        EXTRN   GSTROW,GSTMOD
 
 ;--------------------------------------------------------------
 ; CP/M equates
@@ -128,34 +128,55 @@ WAITGO:
 GOTSEED:
         STA     RNGSEED
 
-        ; Parse command line for CPU speed switch
+        ; Parse command line switches
         IF      SPDMODE EQ 1
         MVI     A,5             ; Default: 2MHz prescaler
         STA     PRESCL
+        ENDIF
         LDA     CMDLEN
         ORA     A
-        JZ      PARSED          ; No args: use default
+        JZ      PARSED          ; No args
         MOV     B,A             ; B = tail length
         LXI     H,CMDTAIL
 PFIND:
         MOV     A,M
         CPI     '/'
-        JZ      PFSLASH
+        JZ      PFSLSH
+PFNXT:
         INX     H
         DCR     B
         JNZ     PFIND
-        JMP     PARSED          ; No '/' found
-PFSLASH:
+        JMP     PARSED          ; End of tail
+PFSLSH:
         INX     H               ; Char after '/'
         DCR     B
         JZ      PARSED          ; '/' at end
         MOV     A,M
+        IF      SPDMODE EQ 1
         CPI     '4'
-        JNZ     PARSED          ; Not '4': keep default
+        JNZ     PFN4
         MVI     A,10            ; 4MHz prescaler
         STA     PRESCL
-PARSED:
+        JMP     PFNXT
+PFN4:   MOV     A,M             ; Reload char
         ENDIF
+        ORI     20H             ; Force lowercase
+        CPI     'g'
+        JNZ     PFNXT           ; Not /G: skip
+        INX     H               ; Check for 'C'
+        DCR     B
+        JZ      PFGOTG          ; /G alone at end
+        MOV     A,M
+        ORI     20H
+        CPI     'c'
+        JNZ     PFGOTG          ; Not 'C': treat as /G
+        INX     H               ; Skip past 'C'
+        DCR     B
+PFGOTG:
+        MVI     A,1
+        STA     GSTMOD          ; Enable ghost colors
+        JMP     PFNXT
+PARSED:
 
         ; Initialize Dazzler hardware
         LXI     H,DZLBASE
@@ -269,13 +290,13 @@ GAMELP:
         CPI     'D'
         JZ      DORIGHT
         CPI     'w'
-        JZ      DOROT
+        JZ      DOROTC
         CPI     'W'
-        JZ      DOROT
+        JZ      DOROTC
         CPI     'r'
-        JZ      DOROTC
+        JZ      DOROT
         CPI     'R'
-        JZ      DOROTC
+        JZ      DOROT
         CPI     's'
         JZ      DOSOFT
         CPI     'S'
@@ -1022,15 +1043,15 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.06'
+        DB      '     Cromemco Dazzler v1.07'
         DB      13,10,'$'
 
 MSGCTRL:
-        DB      'A=Left D=Right W=CW R=CCW'
+        DB      'A=Left D=Right W=CCW R=CW'
         DB      13,10
         DB      'S=Drop SPACE=Hard E=Hold'
         DB      13,10
-        DB      'Q=Quit'
+        DB      'Q=Quit  /GC=Ghost colors'
         DB      13,10,10,'$'
 
 MSGGO:
