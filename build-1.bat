@@ -17,35 +17,50 @@ REM Assemble each module
 echo Assembling TETRIS...
 cpmulator M80.COM =TETRIS
 if errorlevel 1 goto fail
+pause
 
 echo Assembling TETMOVE...
 cpmulator M80.COM =TETMOVE
 if errorlevel 1 goto fail
+pause
 
 echo Assembling TETDRAW...
 cpmulator M80.COM =TETDRAW
 if errorlevel 1 goto fail
+pause
 
 echo Assembling TETDATA...
 cpmulator M80.COM =TETDATA
 if errorlevel 1 goto fail
+pause
 
 echo Assembling D64X64...
 cpmulator M80.COM =D64X64
 if errorlevel 1 goto fail
+pause
 
 echo Assembling D64X64A...
 cpmulator M80.COM =D64X64A
 if errorlevel 1 goto fail
+pause
 
 echo Assembling D64X64B...
 cpmulator M80.COM =D64X64B
 if errorlevel 1 goto fail
+pause
+
+cls
+dir *.mac
+dir *.rel
+pause
 
 REM Link all modules
 echo Linking...
 cpmulator L80.COM TETRIS,TETMOVE,TETDRAW,TETDATA,D64X64,D64X64A,D64X64B,TETRIS/N/E
 if errorlevel 1 goto fail
+
+dir tetris.com
+pause
 
 REM Clean up .REL files
 del *.REL 2>nul
