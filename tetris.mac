@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.07
+; Version: 1.08
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -63,7 +63,7 @@
         EXTRN   GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         EXTRN   RNGSEED,SPDTBL,DRPFLG
         EXTRN   PCHOLD,HOLDOK
-        EXTRN   GSTROW,GSTMOD
+        EXTRN   GSTROW,GSTMOD,HLDDIS
 
 ;--------------------------------------------------------------
 ; CP/M equates
@@ -143,6 +143,9 @@ PFIND:
         CPI     '/'
         JZ      PFSLSH
 PFNXT:
+        MOV     A,B
+        ORA     A
+        JZ      PARSED          ; All chars consumed
         INX     H
         DCR     B
         JNZ     PFIND
@@ -162,19 +165,43 @@ PFN4:   MOV     A,M             ; Reload char
         ENDIF
         ORI     20H             ; Force lowercase
         CPI     'g'
-        JNZ     PFNXT           ; Not /G: skip
-        INX     H               ; Check for 'C'
+        JZ      PFG             ; /G switch
+        CPI     'h'
+        JZ      PFH             ; /H switch
+        JMP     PFNXT           ; Unknown: skip
+        ; --- /G: ghost switches ---
+PFG:    INX     H               ; Char after 'G'
         DCR     B
         JZ      PFGOTG          ; /G alone at end
         MOV     A,M
         ORI     20H
         CPI     'c'
-        JNZ     PFGOTG          ; Not 'C': treat as /G
-        INX     H               ; Skip past 'C'
-        DCR     B
+        JZ      PFGOTC          ; /GC: ghost colors
+        CPI     'd'
+        JZ      PFGOTD          ; /GD: ghost disable
+        JMP     PFGOTG          ; /G alone: treat as /GC
+PFGOTC:
 PFGOTG:
         MVI     A,1
         STA     GSTMOD          ; Enable ghost colors
+        JMP     PFNXT
+PFGOTD:
+        LDA     GSTMOD          ; Don't override /GC
+        CPI     1
+        JZ      PFNXT
+        MVI     A,2
+        STA     GSTMOD          ; Disable ghosts
+        JMP     PFNXT
+        ; --- /H: hold switches ---
+PFH:    INX     H               ; Char after 'H'
+        DCR     B
+        JZ      PFNXT           ; /H alone at end: ignore
+        MOV     A,M
+        ORI     20H
+        CPI     'd'
+        JNZ     PFNXT           ; Not /HD: ignore
+        MVI     A,1
+        STA     HLDDIS          ; Disable hold
         JMP     PFNXT
 PARSED:
 
@@ -376,6 +403,9 @@ DOQUIT:
 ; Hold piece
 ;--------------------------------------------------------------
 DOHOLD:
+        LDA     HLDDIS
+        ORA     A
+        JNZ     NOGRAV          ; Hold disabled
         LDA     HOLDOK
         ORA     A
         JZ      NOGRAV          ; Already held this turn
@@ -1043,7 +1073,7 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.07'
+        DB      '     Cromemco Dazzler v1.08'
         DB      13,10,'$'
 
 MSGCTRL:
@@ -1051,7 +1081,7 @@ MSGCTRL:
         DB      13,10
         DB      'S=Drop SPACE=Hard E=Hold'
         DB      13,10
-        DB      'Q=Quit  /GC=Ghost colors'
+        DB      'Q=Quit '
         DB      13,10,10,'$'
 
 MSGGO:

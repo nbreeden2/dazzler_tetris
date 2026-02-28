@@ -3,7 +3,7 @@
 ; TETDRAW.MAC - All Dazzler drawing operations for Tetris
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.07
+; Version: 1.08
 ; Handles playfield border, cell drawing, piece rendering,
 ; next-piece preview, board redraw, and level indicator.
 ;
@@ -24,7 +24,7 @@
         EXTRN   BOARD
         EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
         EXTRN   PCNEXT,PCHOLD,ROTIDX,PCTBL
-        EXTRN   COLLIDE,GCTBL,GSTROW,GSTMOD
+        EXTRN   COLLIDE,GCTBL,GSTROW,GSTMOD,HLDDIS
 
 ; Color equates
 BLACK   EQU     0
@@ -386,6 +386,9 @@ ERSNXT:
 ; Uses: All registers
 ;--------------------------------------------------------------
 DRWHBX:
+        LDA     HLDDIS
+        ORA     A
+        RNZ                     ; Hold box hidden
         ; Top
         MVI     B,HDBOXX
         MVI     C,HDBOXY
@@ -438,6 +441,9 @@ ERSHLD:
 ; Uses: All registers
 ;--------------------------------------------------------------
 DRWHLD:
+        LDA     HLDDIS
+        ORA     A
+        RNZ                     ; Hold display hidden
         ; Check if hold slot is empty
         LDA     PCHOLD
         CPI     0FFH
@@ -525,6 +531,9 @@ HDCLR:  DB      0
 ; Uses: All registers
 ;--------------------------------------------------------------
 ERSGST:
+        LDA     GSTMOD
+        CPI     2
+        RZ                      ; Ghost disabled
         LDA     GSTROW
         MOV     B,A
         LDA     PCROW
@@ -586,6 +595,9 @@ ERSG2:
 ; Uses: All registers
 ;--------------------------------------------------------------
 DRWGST:
+        LDA     GSTMOD
+        CPI     2
+        RZ                      ; Ghost disabled
         ; Start ghost at current piece row
         LDA     PCROW
         STA     GSTROW
