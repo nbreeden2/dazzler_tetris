@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.08
+; Version: 1.09
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -49,7 +49,7 @@
 ; External - tetdraw.mac (rendering)
 ;--------------------------------------------------------------
         EXTRN   DRAWBDR,DRWBOX,DRWHBX,DRAWPC,ERSPC
-        EXTRN   DRWNXT,ERSNXT,DRWHLD,REDRAW,DRAWLVL
+        EXTRN   DRWNXT,ERSNXT,DRWHLD,REDRAW,DRAWLVL,DRWLGO
         EXTRN   DRWGST,ERSGST
         EXTRN   DLEVEL
 
@@ -97,6 +97,28 @@ BLACK   EQU     0
         ORG     100H
 
 START:
+        ; Quick check for /? before title screen
+        LDA     CMDLEN
+        ORA     A
+        JZ      NOHELP
+        MOV     B,A
+        LXI     H,CMDTAIL
+CHKHLP:
+        MOV     A,M
+        CPI     '/'
+        JNZ     CHKNXT
+        INX     H
+        DCR     B
+        JZ      NOHELP
+        MOV     A,M
+        CPI     '?'
+        JZ      PFHELP          ; Found /? — print help and exit
+CHKNXT:
+        INX     H
+        DCR     B
+        JNZ     CHKHLP
+NOHELP:
+
         ; Print startup message to console
         LXI     D,MSGSTRT
         MVI     C,PSTRING
@@ -203,6 +225,12 @@ PFH:    INX     H               ; Char after 'H'
         MVI     A,1
         STA     HLDDIS          ; Disable hold
         JMP     PFNXT
+        ; --- /? = display help and exit ---
+PFHELP:
+        LXI     D,MSGHLP
+        MVI     C,PSTRING
+        CALL    BDOS
+        JMP     WBOOT
 PARSED:
 
         ; Initialize Dazzler hardware
@@ -277,6 +305,9 @@ CLRBRD:
 
         ; Draw initial level indicator
         CALL    DRAWLVL
+
+        ; Draw TETRIS logo
+        CALL    DRWLGO
 
         ; Print initial score line
         CALL    PRTSCR
@@ -1073,8 +1104,8 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.08'
-        DB      13,10,'$'
+        DB      '     Cromemco Dazzler v1.09'
+        DB      13,10,13,10,13,10,'$'
 
 MSGCTRL:
         DB      'A=Left D=Right W=CCW R=CW'
@@ -1105,6 +1136,22 @@ MSGWAIT:
 
 MSGNL:
         DB      13,10,'$'
+
+MSGHLP:
+        DB      13,10
+        IF      SPDMODE EQ 1
+        DB      'Usage: TETRIS [/4] [/GC] [/GD] [/HD]'
+        ELSE
+        DB      'Usage: TETRIS [/GC] [/GD] [/HD]'
+        ENDIF
+        DB      13,10,10
+        IF      SPDMODE EQ 1
+        DB      '  /4   4MHz CPU mode (default = 2MHz CPU)',13,10
+        ENDIF
+        DB      '  /GC  Enable color ghosts (default = Grey)',13,10
+        DB      '  /GD  Disable ghost pieces',13,10
+        DB      '  /HD  Disable hold feature',13,10
+        DB      '$'
 
         IF      SPDMODE EQ 1
 PRESCL: DB      5               ; Base prescaler (set by parser)

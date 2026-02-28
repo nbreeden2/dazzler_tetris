@@ -3,7 +3,7 @@
 ; TETDRAW.MAC - All Dazzler drawing operations for Tetris
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.08
+; Version: 1.09
 ; Handles playfield border, cell drawing, piece rendering,
 ; next-piece preview, board redraw, and level indicator.
 ;
@@ -17,7 +17,7 @@
         PUBLIC  DRAWPC,ERSPC
         PUBLIC  DRWNXT,ERSNXT,DRWHLD
         PUBLIC  DRWGST,ERSGST
-        PUBLIC  REDRAW,DRAWLVL
+        PUBLIC  REDRAW,DRAWLVL,DRWLGO
 
         EXTRN   DZLHLIN,DZLVLIN,DZLFRECT
         EXTRN   GETROT
@@ -25,6 +25,8 @@
         EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
         EXTRN   PCNEXT,PCHOLD,ROTIDX,PCTBL
         EXTRN   COLLIDE,GCTBL,GSTROW,GSTMOD,HLDDIS
+        EXTRN   LGOBMP,LGOCLR
+        EXTRN   DZLPSET
 
 ; Color equates
 BLACK   EQU     0
@@ -59,8 +61,8 @@ HDORGY  EQU     22      ; Hold piece pixel Y origin
 ; Level bar position (left of preview/hold boxes)
 LVLX    EQU     33      ; Level bar X start
 LVLXR   EQU     37      ; Level bar X end
-LVLBOT  EQU     62      ; Level bar bottom Y
-LVLTOP  EQU     24      ; Level bar top limit Y
+LVLBOT  EQU     37      ; Level bar bottom Y
+LVLTOP  EQU     2       ; Level bar top limit Y
 
 ;--------------------------------------------------------------
 ; DRAWBDR - Draw playfield border
@@ -747,7 +749,7 @@ REDR3:
 ; DRAWLVL - Draw level indicator bar
 ;
 ; Draws a vertical bar whose height = level (max ~12).
-; Position: X=48..52, from Y=LVLBOT upward.
+; Position: X=33..37, from Y=LVLBOT upward.
 ; First clears the bar area, then fills per level.
 ; Uses: All registers
 ;--------------------------------------------------------------
@@ -795,6 +797,108 @@ DL1:
 ; Local cached level (set by caller before DRAWLVL)
         PUBLIC  DLEVEL
 DLEVEL: DB      0
+
+;--------------------------------------------------------------
+; Logo position equates
+;--------------------------------------------------------------
+LGOX    EQU     34      ; Logo top-left X
+LGOY    EQU     45      ; Logo top-left Y
+
+;--------------------------------------------------------------
+; DRWLGO - Draw TETRIS logo in bottom-right area
+;
+; Renders 6 characters (4x7 each) from LGOBMP bitmap data
+; using per-letter colors from LGOCLR.
+; Uses: All registers
+;--------------------------------------------------------------
+DRWLGO:
+        LXI     H,LGOBMP
+        SHLD    LGOBP           ; Bitmap data pointer
+        LXI     H,LGOCLR
+        SHLD    LGOCP           ; Color table pointer
+        MVI     A,LGOX
+        STA     LGOCX           ; Current char X origin
+        MVI     A,6
+        STA     LGOCNT          ; 6 characters
+
+        ; --- Outer loop: each character ---
+LGOCHR:
+        LHLD    LGOCP
+        MOV     A,M             ; Load color for this char
+        INX     H
+        SHLD    LGOCP           ; Advance color pointer
+        STA     LGOCOL          ; Save current color
+
+        LHLD    LGOBP           ; HL = bitmap rows
+        MVI     A,LGOY
+        STA     LGOCY           ; Reset Y to top of logo
+        MVI     B,7             ; 7 rows per character
+
+        ; --- Middle loop: each row ---
+LGOROW:
+        PUSH    B               ; Save row counter
+        MOV     A,M             ; Load row bitmap byte
+        STA     LGOBM           ; Save bitmap
+        INX     H
+        PUSH    H               ; Save bitmap pointer
+
+        LDA     LGOCX
+        MOV     B,A             ; B = X position
+        LDA     LGOCY
+        MOV     C,A             ; C = Y position
+        MVI     D,4             ; 4 pixels per row
+        LDA     LGOBM           ; A = bitmap byte
+
+        ; --- Inner loop: each pixel ---
+LGOPIX:
+        RLC                     ; Bit 7 into carry
+        PUSH    PSW             ; Save shifted bitmap
+        JNC     LGOSKP          ; Bit clear: skip
+
+        ; Plot pixel at (B,C) with color
+        PUSH    D               ; Save pixel counter
+        LDA     LGOCOL          ; A = color
+        CALL    DZLPSET         ; B,C preserved
+        POP     D               ; Restore pixel counter
+
+LGOSKP:
+        INR     B               ; Next X column
+        POP     PSW             ; Restore bitmap
+        DCR     D               ; Pixel counter
+        JNZ     LGOPIX          ; More pixels
+
+        ; Advance to next row
+        LDA     LGOCY
+        INR     A
+        STA     LGOCY
+
+        POP     H               ; Restore bitmap pointer
+        POP     B               ; Restore row counter
+        DCR     B
+        JNZ     LGOROW          ; More rows
+
+        ; Advance to next character
+        SHLD    LGOBP           ; Save bitmap pointer
+
+        LDA     LGOCX
+        ADI     5               ; Next char X (4 wide + 1 gap)
+        STA     LGOCX
+
+        LDA     LGOCNT
+        DCR     A
+        STA     LGOCNT
+        JNZ     LGOCHR          ; More characters
+
+        RET
+
+; DRWLGO local variables
+LGOBP:  DW      0               ; Bitmap data pointer
+LGOCP:  DW      0               ; Color table pointer
+LGOCX:  DB      0               ; Current char X origin
+LGOCY:  DB      0               ; Current row Y
+LGOCOL: DB      0               ; Current char color
+LGOBM:  DB      0               ; Current row bitmap
+LGOCNT: DB      0               ; Characters remaining
 
         END
 
