@@ -3,7 +3,7 @@
 ; TETDATA.MAC - Data tables and game state variables
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.09
+; Version: 1.10
 ; Pure data module: rotation tables, color/speed/score
 ; tables, board array, and all shared game variables.
 ;
@@ -17,7 +17,7 @@
         PUBLIC  SPDTBL,SCRTBL
         PUBLIC  BOARD
         PUBLIC  PCTYPE,PCROT,PCCOL,PCROW,PCCLR,PCNEXT,PCHOLD,HOLDOK
-        PUBLIC  GCTBL,GSTROW,GSTMOD,HLDDIS
+        PUBLIC  GCTBL,GSTROW,GSTMOD,HLDDIS,SCRDIS
         PUBLIC  LGOBMP,LGOCLR
         PUBLIC  SCORE,LINES,LEVEL
         PUBLIC  GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
@@ -367,6 +367,7 @@ GCTBL:  DB      6       ; I ghost = dim cyan
 GSTROW: DB      0       ; Ghost piece display row
 GSTMOD: DB      0       ; Ghost mode (0=grey, 1=color, 2=off)
 HLDDIS: DB      0       ; Hold disable (0=enabled, 1=disabled)
+SCRDIS: DB      0       ; Score display disable (0=enabled, 1=disabled)
 
 ;--------------------------------------------------------------
 ; Logo bitmap data - 6 characters, 4x7 pixels each

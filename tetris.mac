@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.09
+; Version: 1.10
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -20,11 +20,11 @@
 ; Run:
 ;   A>TETRIS
 ;
-; Controls:
-;   A = Move left    D = Move right
-;   W = Rotate CCW   R = Rotate CW
-;   S = Soft drop    E = Hold
-;   SPACE = Hard drop    Q = Quit
+; Controls (two key sets):
+;   A/J = Move left    D/L = Move right
+;   W/I = Rotate CCW   R/P = Rotate CW
+;   S/K = Soft drop    E/O = Hold
+;   SPACE = Hard drop  Q/U = Quit
 ;--------------------------------------------------------------
 
 ;--------------------------------------------------------------
@@ -63,7 +63,7 @@
         EXTRN   GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         EXTRN   RNGSEED,SPDTBL,DRPFLG
         EXTRN   PCHOLD,HOLDOK
-        EXTRN   GSTROW,GSTMOD,HLDDIS
+        EXTRN   GSTROW,GSTMOD,HLDDIS,SCRDIS
 
 ;--------------------------------------------------------------
 ; CP/M equates
@@ -190,6 +190,8 @@ PFN4:   MOV     A,M             ; Reload char
         JZ      PFG             ; /G switch
         CPI     'h'
         JZ      PFH             ; /H switch
+        CPI     's'
+        JZ      PFS             ; /S switch
         JMP     PFNXT           ; Unknown: skip
         ; --- /G: ghost switches ---
 PFG:    INX     H               ; Char after 'G'
@@ -224,6 +226,17 @@ PFH:    INX     H               ; Char after 'H'
         JNZ     PFNXT           ; Not /HD: ignore
         MVI     A,1
         STA     HLDDIS          ; Disable hold
+        JMP     PFNXT
+        ; --- /S: score switches ---
+PFS:    INX     H               ; Char after 'S'
+        DCR     B
+        JZ      PFNXT           ; /S alone at end: ignore
+        MOV     A,M
+        ORI     20H
+        CPI     'd'
+        JNZ     PFNXT           ; Not /SD: ignore
+        MVI     A,1
+        STA     SCRDIS          ; Disable score display
         JMP     PFNXT
         ; --- /? = display help and exit ---
 PFHELP:
@@ -368,6 +381,35 @@ GAMELP:
         CPI     'q'
         JZ      DOQUIT
         CPI     'Q'
+        JZ      DOQUIT
+        ; Alternate key set
+        CPI     'j'
+        JZ      DOLEFT
+        CPI     'J'
+        JZ      DOLEFT
+        CPI     'l'
+        JZ      DORIGHT
+        CPI     'L'
+        JZ      DORIGHT
+        CPI     'i'
+        JZ      DOROTC
+        CPI     'I'
+        JZ      DOROTC
+        CPI     'p'
+        JZ      DOROT
+        CPI     'P'
+        JZ      DOROT
+        CPI     'k'
+        JZ      DOSOFT
+        CPI     'K'
+        JZ      DOSOFT
+        CPI     'o'
+        JZ      DOHOLD
+        CPI     'O'
+        JZ      DOHOLD
+        CPI     'u'
+        JZ      DOQUIT
+        CPI     'U'
         JZ      DOQUIT
         JMP     NOGRAV          ; Unrecognized key
 
@@ -982,6 +1024,9 @@ QUIT:
 ; Outputs CR then the status line (overwrites in place).
 ;--------------------------------------------------------------
 PRTSCR:
+        LDA     SCRDIS
+        ORA     A
+        RNZ                     ; Score display disabled
         ; CR to return to start of line
         MVI     A,0DH
         CALL    PRTCH
@@ -1104,15 +1149,17 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.09'
+        DB      '     Cromemco Dazzler v1.10'
         DB      13,10,13,10,13,10,'$'
 
 MSGCTRL:
-        DB      'A=Left D=Right W=CCW R=CW'
+        DB      'Q=Quit W=CCW  E=Hold R=CW'
+        DB      '      U=Quit I=CCW  O=Hold P=CW'
         DB      13,10
-        DB      'S=Drop SPACE=Hard E=Hold'
+        DB      'A=Left S=Drop D=Right'
+        DB      '          J=Left K=Drop L=Right'
         DB      13,10
-        DB      'Q=Quit '
+        DB      '                   SPACE=Hard Drop'
         DB      13,10,10,'$'
 
 MSGGO:
@@ -1140,9 +1187,9 @@ MSGNL:
 MSGHLP:
         DB      13,10
         IF      SPDMODE EQ 1
-        DB      'Usage: TETRIS [/4] [/GC] [/GD] [/HD]'
+        DB      'Usage: TETRIS [/4] [/GC] [/GD] [/HD] [/SD]'
         ELSE
-        DB      'Usage: TETRIS [/GC] [/GD] [/HD]'
+        DB      'Usage: TETRIS [/GC] [/GD] [/HD] [/SD]'
         ENDIF
         DB      13,10,10
         IF      SPDMODE EQ 1
@@ -1151,6 +1198,7 @@ MSGHLP:
         DB      '  /GC  Enable color ghosts (default = Grey)',13,10
         DB      '  /GD  Disable ghost pieces',13,10
         DB      '  /HD  Disable hold feature',13,10
+        DB      '  /SD  Disable real-time score display',13,10
         DB      '$'
 
         IF      SPDMODE EQ 1
