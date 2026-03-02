@@ -3,7 +3,7 @@
 ; TETMOVE.MAC - Movement, collision, locking, lines, score
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.10
+; Version: 1.11
 ;
 ; Assembler: Microsoft M80
 ;--------------------------------------------------------------
@@ -14,13 +14,13 @@
         PUBLIC  GETROT,COLLIDE
         PUBLIC  MOVELFT,MOVERGT,MOVEDN
         PUBLIC  ROTATE,ROTCCW,HARDDROP
-        PUBLIC  LOCKPC,CLRLINE,ADDSCORE,UPDLVL
+        PUBLIC  LOCKPC,CLRLINE,ADDSCORE,ADDPC,UPDLVL
 
         EXTRN   ERSPC,DRAWPC
         EXTRN   BOARD
         EXTRN   PCTYPE,PCROT,PCCOL,PCROW,PCCLR
         EXTRN   ROTIDX,ROTMAX,PCTBL,KICKTBL,KICKCCW
-        EXTRN   SPDTBL,SCRTBL
+        EXTRN   SPDTBL,SCRTBL,PCLTBL
         EXTRN   SCORE,LINES,LEVEL
         EXTRN   GRAVCNT,GRAVMAX,LNCOUNT,DRPFLG
 
@@ -689,6 +689,60 @@ ASCMUL:
         LHLD    SCORE
         DAD     D
         SHLD    SCORE
+        RET
+
+;--------------------------------------------------------------
+; ADDPC - Check for perfect clear and add bonus
+;
+; Scans all 200 board cells. If all empty, adds PC bonus
+; based on lines cleared: 800/1200/1800/2000 x (level+1).
+; Entry:  A = lines just cleared (1-4)
+; Uses:   All registers
+;--------------------------------------------------------------
+ADDPC:
+        PUSH    PSW             ; Save line count
+        ; Scan board for any non-empty cell
+        LXI     H,BOARD
+        MVI     B,200
+PCLP:
+        MOV     A,M
+        ORA     A
+        JNZ     PCNO            ; Non-empty: not a PC
+        INX     H
+        DCR     B
+        JNZ     PCLP
+
+        ; Board is empty: perfect clear!
+        POP     PSW             ; A = lines cleared
+        DCR     A               ; 0-based index
+        ADD     A               ; Word index
+        MOV     E,A
+        MVI     D,0
+        LXI     H,PCLTBL
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M             ; DE = base PC bonus
+
+        ; Multiply by (level + 1)
+        LDA     LEVEL
+        INR     A
+        MOV     B,A
+        LXI     H,0
+PCMUL:
+        DAD     D
+        DCR     B
+        JNZ     PCMUL
+
+        ; Add to score
+        XCHG
+        LHLD    SCORE
+        DAD     D
+        SHLD    SCORE
+        RET
+
+PCNO:
+        POP     PSW             ; Clean stack
         RET
 
 ;--------------------------------------------------------------

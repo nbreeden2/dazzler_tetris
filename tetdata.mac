@@ -3,7 +3,7 @@
 ; TETDATA.MAC - Data tables and game state variables
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.10
+; Version: 1.11
 ; Pure data module: rotation tables, color/speed/score
 ; tables, board array, and all shared game variables.
 ;
@@ -14,7 +14,7 @@
 ; Public declarations - all symbols used by other modules
 ;--------------------------------------------------------------
         PUBLIC  ROTIDX,ROTMAX,PCTBL,KICKTBL,KICKCCW
-        PUBLIC  SPDTBL,SCRTBL
+        PUBLIC  SPDTBL,SCRTBL,PCLTBL
         PUBLIC  BOARD
         PUBLIC  PCTYPE,PCROT,PCCOL,PCROW,PCCLR,PCNEXT,PCHOLD,HOLDOK
         PUBLIC  GCTBL,GSTROW,GSTMOD,HLDDIS,SCRDIS
@@ -310,6 +310,16 @@ SCRTBL:
         DW      300             ; 2 lines (Double)
         DW      500             ; 3 lines (Triple)
         DW      800             ; 4 lines (Tetris)
+
+;--------------------------------------------------------------
+; Perfect Clear bonus table (base points, indexed by lines-1)
+; Multiply by (level+1) for final score.
+;--------------------------------------------------------------
+PCLTBL:
+        DW      800             ; 1 line PC
+        DW      1200            ; 2 line PC
+        DW      1800            ; 3 line PC
+        DW      2000            ; 4 line PC (Tetris PC)
 
 ;--------------------------------------------------------------
 ; Game Board

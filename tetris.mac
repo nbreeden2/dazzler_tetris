@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.10
+; Version: 1.11
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -43,7 +43,7 @@
         EXTRN   COLLIDE,GETROT
         EXTRN   MOVELFT,MOVERGT,MOVEDN
         EXTRN   ROTATE,ROTCCW,HARDDROP
-        EXTRN   LOCKPC,CLRLINE,ADDSCORE,UPDLVL
+        EXTRN   LOCKPC,CLRLINE,ADDSCORE,ADDPC,UPDLVL
 
 ;--------------------------------------------------------------
 ; External - tetdraw.mac (rendering)
@@ -251,6 +251,7 @@ PARSED:
         CALL    DZLINIT
 
         ; Clear screen to black
+NEWGAME:
         MVI     A,BLACK
         CALL    DZLCLR
 
@@ -275,11 +276,14 @@ CLRBRD:
         ; Initialize game state
         XRA     A
         STA     LEVEL
+        STA     DLEVEL
         STA     GAMOVR
         STA     LNCOUNT
         STA     DRPFLG
         STA     COMBO
         STA     LOCKING         ; Not in lock state
+        MVI     A,7
+        STA     BAGIDX          ; Force bag refill
         MVI     A,0FFH
         STA     PCHOLD          ; No held piece
         MVI     A,1
@@ -751,6 +755,11 @@ NOCMB:
         INR     A
         STA     COMBO
 
+        ; Check for perfect clear bonus
+        POP     PSW
+        PUSH    PSW
+        CALL    ADDPC
+
         ; Update level
         POP     PSW
         PUSH    PSW
@@ -998,12 +1007,15 @@ GAMEOVER:
         MVI     C,PSTRING
         CALL    BDOS
 
-        ; Wait for keypress
-        LXI     D,MSGWAIT
+        ; Ask to play again
+        LXI     D,MSGAGN
         MVI     C,PSTRING
         CALL    BDOS
         MVI     C,1             ; Console input
         CALL    BDOS
+        ORI     20H             ; Force lowercase
+        CPI     'y'
+        JZ      NEWGAME         ; Restart game
 
         ; Fall through to QUIT
 
@@ -1149,17 +1161,17 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.10'
+        DB      '     Cromemco Dazzler v1.11'
         DB      13,10,13,10,13,10,'$'
 
 MSGCTRL:
-        DB      'Q=Quit W=CCW  E=Hold R=CW'
+        DB      '            Q=Quit W=CCW  E=Hold R=CW'
         DB      '      U=Quit I=CCW  O=Hold P=CW'
         DB      13,10
-        DB      'A=Left S=Drop D=Right'
+        DB      '            A=Left S=Drop D=Right'
         DB      '          J=Left K=Drop L=Right'
         DB      13,10
-        DB      '                   SPACE=Hard Drop'
+        DB      '                               SPACE=Hard Drop'
         DB      13,10,10,'$'
 
 MSGGO:
@@ -1176,10 +1188,9 @@ MSGFLN:
 MSGFLV:
         DB      'Final Level: $'
 
-MSGWAIT:
+MSGAGN:
         DB      13,10
-        DB      'Press any key to exit...'
-        DB      13,10,'$'
+        DB      'Play again? (Y/N) $'
 
 MSGNL:
         DB      13,10,'$'
