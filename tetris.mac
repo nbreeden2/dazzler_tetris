@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.11
+; Version: 1.12
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -24,7 +24,7 @@
 ;   A/J = Move left    D/L = Move right
 ;   W/I = Rotate CCW   R/P = Rotate CW
 ;   S/K = Soft drop    E/O = Hold
-;   SPACE = Hard drop  Q/U = Quit
+;   SPACE = Hard drop  ESC = Quit
 ;--------------------------------------------------------------
 
 ;--------------------------------------------------------------
@@ -382,9 +382,7 @@ GAMELP:
         JZ      DOHOLD
         CPI     'E'
         JZ      DOHOLD
-        CPI     'q'
-        JZ      DOQUIT
-        CPI     'Q'
+        CPI     1BH             ; ESC key
         JZ      DOQUIT
         ; Alternate key set
         CPI     'j'
@@ -411,10 +409,6 @@ GAMELP:
         JZ      DOHOLD
         CPI     'O'
         JZ      DOHOLD
-        CPI     'u'
-        JZ      DOQUIT
-        CPI     'U'
-        JZ      DOQUIT
         JMP     NOGRAV          ; Unrecognized key
 
 DOLEFT:
@@ -1161,17 +1155,19 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.11'
+        DB      '     Cromemco Dazzler v1.12'
         DB      13,10,13,10,13,10,'$'
 
 MSGCTRL:
-        DB      '            Q=Quit W=CCW  E=Hold R=CW'
-        DB      '      U=Quit I=CCW  O=Hold P=CW'
+        DB      '                  W=CCW  E=Hold R=CW'
+        DB      '             I=CCW  O=Hold P=CW'
         DB      13,10
-        DB      '            A=Left S=Drop D=Right'
+        DB      '           A=Left S=Drop D=Right'
         DB      '          J=Left K=Drop L=Right'
         DB      13,10
         DB      '                               SPACE=Hard Drop'
+        DB      13,10
+        DB      '                                 <ESC>=Quit'
         DB      13,10,10,'$'
 
 MSGGO:
