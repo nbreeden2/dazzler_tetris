@@ -3,7 +3,7 @@
 ; TETDRAW.MAC - All Dazzler drawing operations for Tetris
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.12
+; Version: 1.13
 ; Handles playfield border, cell drawing, piece rendering,
 ; next-piece preview, board redraw, and level indicator.
 ;
@@ -801,7 +801,7 @@ DLEVEL: DB      0
 ;--------------------------------------------------------------
 ; Logo position equates
 ;--------------------------------------------------------------
-LGOX    EQU     34      ; Logo top-left X
+LGOX    EQU     33      ; Logo top-left X
 LGOY    EQU     45      ; Logo top-left Y
 
 ;--------------------------------------------------------------
@@ -846,7 +846,7 @@ LGOROW:
         MOV     B,A             ; B = X position
         LDA     LGOCY
         MOV     C,A             ; C = Y position
-        MVI     D,4             ; 4 pixels per row
+        MVI     D,5             ; 5 pixels per row
         LDA     LGOBM           ; A = bitmap byte
 
         ; --- Inner loop: each pixel ---
@@ -881,7 +881,7 @@ LGOSKP:
         SHLD    LGOBP           ; Save bitmap pointer
 
         LDA     LGOCX
-        ADI     5               ; Next char X (4 wide + 1 gap)
+        ADI     5               ; Next char X (5 wide, no gap)
         STA     LGOCX
 
         LDA     LGOCNT

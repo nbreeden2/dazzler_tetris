@@ -3,7 +3,7 @@
 ; TETDATA.MAC - Data tables and game state variables
 ;
 ; Part of the Tetris for Cromemco Dazzler project.
-; Version: 1.12
+; Version: 1.13
 ; Pure data module: rotation tables, color/speed/score
 ; tables, board array, and all shared game variables.
 ;
@@ -380,22 +380,22 @@ HLDDIS: DB      0       ; Hold disable (0=enabled, 1=disabled)
 SCRDIS: DB      0       ; Score display disable (0=enabled, 1=disabled)
 
 ;--------------------------------------------------------------
-; Logo bitmap data - 6 characters, 4x7 pixels each
-; Each byte = one row, upper nibble = 4 pixels (bit7=left)
+; Logo bitmap data - 6 characters, 5x7 pixels each
+; Each byte = one row, upper 5 bits = 5 pixels (bit7=left)
 ;--------------------------------------------------------------
 LGOBMP:
         ; T (red)
-        DB      0F0H,060H,060H,060H,060H,060H,060H
+        DB      0F8H,020H,020H,020H,020H,020H,020H
         ; E (cyan)
-        DB      0F0H,080H,080H,0C0H,080H,080H,0F0H
+        DB      0F8H,080H,080H,0F0H,080H,080H,0F8H
         ; T (yellow)
-        DB      0F0H,060H,060H,060H,060H,060H,060H
+        DB      0F8H,020H,020H,020H,020H,020H,020H
         ; R (green)
-        DB      0F0H,090H,090H,0F0H,0C0H,0A0H,090H
+        DB      0F0H,088H,088H,0F0H,0A0H,090H,088H
         ; I (blue)
-        DB      0F0H,060H,060H,060H,060H,060H,0F0H
+        DB      0F8H,020H,020H,020H,020H,020H,0F8H
         ; S (purple)
-        DB      060H,090H,080H,060H,010H,090H,060H
+        DB      070H,088H,080H,070H,008H,088H,070H
 
 LGOCLR: DB      9,14,11,10,12,13  ; T,E,T,R,I,S colors
 

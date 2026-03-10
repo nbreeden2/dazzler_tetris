@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.12
+; Version: 1.13
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -1155,7 +1155,7 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.12'
+        DB      '     Cromemco Dazzler v1.13'
         DB      13,10,13,10,13,10,'$'
 
 MSGCTRL:
