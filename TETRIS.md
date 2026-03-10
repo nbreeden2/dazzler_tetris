@@ -1,4 +1,4 @@
-# Tetris for Cromemco Dazzler — Implementation Spec (v1.11)
+# Tetris for Cromemco Dazzler — Implementation Spec (v1.12)
 
 ## Target Platform
 
@@ -195,6 +195,7 @@ Full Super Rotation System wall kicks are implemented with 5 test positions per 
 | HLDDIS | 1 byte | Hold feature disabled (set by /HD) |
 | SCRDIS | 1 byte | Real-time score display disabled (set by /SD) |
 | PRESCL | 1 byte | CPU speed prescaler (5=2MHz, 10=4MHz) |
+| VSYNCE | 1 byte | Vertical sync enabled (set by /VS) |
 
 ---
 
@@ -206,7 +207,7 @@ Full Super Rotation System wall kicks are implemented with 5 test positions per 
 2. Display ASCII art title screen on console
 3. Display controls and "Press any key to start..."
 4. Wait for keypress (keypress timing seeds RNG)
-5. Parse command-line switches (/4, /GC, /GD, /HD, /SD)
+5. Parse command-line switches (/4, /GC, /GD, /HD, /SD, /VS)
 6. Call DZLINIT with HL=8000H (48K-safe frame buffer)
 7. Clear screen with DZLCLR (BLACK)
 8. Draw playfield border, next-piece box, hold-piece box (GREY)
@@ -229,9 +230,9 @@ Full Super Rotation System wall kicks are implemented with 5 test positions per 
 | Soft drop | S | K |
 | Hold piece | E | O |
 | Hard drop | SPACE | SPACE |
-| Quit | Q | U |
+| Quit | ESC | ESC |
 
-All keys are case-insensitive.
+All letter keys are case-insensitive. Quit is the ESC key (1BH).
 
 ### Game Loop (Main Tick)
 
@@ -368,17 +369,16 @@ Gravity is a software countdown. A prescaler accounts for CPU speed (5 for 2MHz,
 
 | Level | Counter Value | Relative Speed |
 |-------|--------------|----------------|
-| 0 | 70 | Slowest |
-| 1 | 60 | |
-| 2 | 52 | |
-| 3 | 44 | |
-| 4 | 38 | |
-| 5 | 32 | |
-| 6 | 26 | |
-| 7 | 20 | |
-| 8 | 16 | |
-| 9 | 12 | |
-| 10+ | 12 | Fastest |
+| 0 | 255 | Slowest |
+| 1 | 227 | |
+| 2 | 202 | |
+| 3 | 179 | |
+| 4 | 159 | |
+| 5 | 142 | |
+| 6 | 126 | |
+| 7 | 112 | |
+| 8 | 100 | |
+| 9+ | 89 | Fastest |
 
 ### Piece Spawning
 
@@ -411,13 +411,14 @@ On game over:
 ## Command-Line Switches
 
 ```
-Usage: TETRIS [/4] [/GC] [/GD] [/HD] [/SD]
+Usage: TETRIS [/4] [/GC] [/GD] [/HD] [/SD] [/VS]
 
   /4   4MHz CPU mode (default = 2MHz CPU)
   /GC  Enable color ghosts (default = Grey)
   /GD  Disable ghost pieces
   /HD  Disable hold feature
   /SD  Disable real-time score display
+  /VS  Enable vertical sync
   /?   Display help and exit
 ```
 
@@ -503,12 +504,13 @@ A>TETRIS /?
                       T    E        T    R  R     I        S
                       T    EEEEE    T    R   R  IIIII  SSSSS
 
-                             Cromemco Dazzler v1.11
+                             Cromemco Dazzler v1.12
 
 
-            Q=Quit W=CCW  E=Hold R=CW      U=Quit I=CCW  O=Hold P=CW
-            A=Left S=Drop D=Right          J=Left K=Drop L=Right
+                  W=CCW  E=Hold R=CW             I=CCW  O=Hold P=CW
+           A=Left S=Drop D=Right          J=Left K=Drop L=Right
                                SPACE=Hard Drop
+                                 <ESC>=Quit
 
 Press any key to start...
 ```

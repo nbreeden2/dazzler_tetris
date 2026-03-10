@@ -22,7 +22,7 @@ Press any key to start playing.
 ## Command-Line Options
 
 ```
-TETRIS [/4] [/GC] [/GD] [/HD] [/SD]
+TETRIS [/4] [/GC] [/GD] [/HD] [/SD] [/VS]
 ```
 
 | Switch | Description |
@@ -32,6 +32,7 @@ TETRIS [/4] [/GC] [/GD] [/HD] [/SD]
 | /GD | Disable ghost pieces entirely |
 | /HD | Disable the hold feature |
 | /SD | Disable the real-time score display on the terminal |
+| /VS | Enable vertical sync (synchronize drawing to Dazzler refresh) |
 | /? | Display help and exit |
 
 Switches may be combined in any order:
@@ -57,12 +58,12 @@ Two equivalent key sets are provided. Use whichever is more comfortable.
   D = Move Right           L = Move Right
   R = Rotate CW            P = Rotate CW
   E = Hold Piece           O = Hold Piece
-  Q = Quit                 U = Quit
 
               SPACE = Hard Drop
+                ESC = Quit
 ```
 
-All keys are case-insensitive.
+All letter keys are case-insensitive. Quit is the ESC key.
 
 ## How to Play
 
