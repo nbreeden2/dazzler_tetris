@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Cromemco Z-2 or compatible S-100 system with Intel 8080 CPU
+- S-100 systems or emulators
 - Cromemco Dazzler graphics board (64x64, color mode)
 - 48K RAM minimum
 - CP/M 2.2
