@@ -5,7 +5,7 @@
 - S-100 systems or emulators
 - Cromemco Dazzler graphics board (64x64, color mode)
 - 48K RAM minimum
-- CP/M 2.2
+- CP/M 2.2 or later
 - Serial terminal (80-column) for text display
 
 ## Getting Started
