@@ -12,7 +12,7 @@ REM Format source files for CP/M
 echo Formatting source files...
 python CPMFMT.PY d64x64.MAC d64x64a.MAC d64x64b.MAC t64x64.MAC 
 if errorlevel 1 goto fail
-python CPMFMT.PY tetdata.MAC tetdraw.PY tetmove.MAC tetris.MAC
+python CPMFMT.PY tetdata.MAC tetdraw.MAC tetmove.MAC tetris.MAC
 if errorlevel 1 goto fail
 
 REM Assemble each module

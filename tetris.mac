@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.13
+; Version: 1.14
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -63,7 +63,7 @@
         EXTRN   GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         EXTRN   RNGSEED,SPDTBL,DRPFLG
         EXTRN   PCHOLD,HOLDOK
-        EXTRN   GSTROW,GSTMOD,HLDDIS,SCRDIS
+        EXTRN   GSTROW,GSTMOD,HLDDIS,SCRDIS,JOYENA,JOYPREV
 
 ;--------------------------------------------------------------
 ; CP/M equates
@@ -80,6 +80,7 @@ DIRCON  EQU     06H             ; Direct console I/O
 ;   3 = Hardcoded 4MHz
 SPDMODE EQU     1
 LCKMAX  EQU     128             ; Lock delay counter reset
+D7ADIG  EQU     18H             ; D+7A I/O digital port
 
 ; CP/M command tail (used by SPDMODE 1)
 CMDLEN  EQU     0080H           ; Command tail length
@@ -192,6 +193,8 @@ PFN4:   MOV     A,M             ; Reload char
         JZ      PFH             ; /H switch
         CPI     's'
         JZ      PFS             ; /S switch
+        CPI     'j'
+        JZ      PFJ             ; /J switch
         JMP     PFNXT           ; Unknown: skip
         ; --- /G: ghost switches ---
 PFG:    INX     H               ; Char after 'G'
@@ -237,6 +240,17 @@ PFS:    INX     H               ; Char after 'S'
         JNZ     PFNXT           ; Not /SD: ignore
         MVI     A,1
         STA     SCRDIS          ; Disable score display
+        JMP     PFNXT
+        ; --- /J: joystick switches ---
+PFJ:    INX     H               ; Char after 'J'
+        DCR     B
+        JZ      PFNXT           ; /J alone at end: ignore
+        MOV     A,M
+        ORI     20H
+        CPI     'y'
+        JNZ     PFNXT           ; Not /JY: ignore
+        MVI     A,1
+        STA     JOYENA          ; Enable joystick
         JMP     PFNXT
         ; --- /? = display help and exit ---
 PFHELP:
@@ -286,6 +300,7 @@ CLRBRD:
         STA     BAGIDX          ; Force bag refill
         MVI     A,0FFH
         STA     PCHOLD          ; No held piece
+        STA     JOYPREV         ; All buttons released
         MVI     A,1
         STA     HOLDOK          ; Hold allowed
         LXI     H,0
@@ -346,7 +361,7 @@ GAMELP:
         MVI     C,DIRCON
         CALL    BDOS
         ORA     A
-        JZ      NOGRAV          ; No key: skip input
+        JZ      JOYCHK          ; No key: check joystick
 
         ; Advance RNG seed on every keypress
         PUSH    PSW             ; Save key
@@ -409,7 +424,69 @@ GAMELP:
         JZ      DOHOLD
         CPI     'O'
         JZ      DOHOLD
-        JMP     NOGRAV          ; Unrecognized key
+        JMP     JOYCHK          ; Unrecognized key
+
+;--------------------------------------------------------------
+; Joystick polling (D+7A I/O digital port)
+;
+; Reads digital port, detects falling edges (1->0) by
+; comparing with previous state. Only fires action once
+; per button press.
+; Bit mapping (active low):
+;   D0 = Rotate CCW    D1 = Move right
+;   D2 = Rotate CW     D3 = Move left
+;--------------------------------------------------------------
+JOYCHK:
+        LDA     JOYENA
+        ORA     A
+        JZ      NOGRAV          ; Joystick not enabled
+        IN      D7ADIG          ; Read digital port
+        MOV     B,A             ; B = current state
+        LDA     JOYPREV         ; A = previous state
+        MOV     C,A             ; C = previous state
+        MOV     A,B
+        STA     JOYPREV         ; Save current as previous
+        ; Detect falling edges: bits that were 1 and now 0
+        ; edge = prev AND (NOT current) = prev AND ~current
+        MOV     A,B             ; A = current
+        CMA                     ; A = NOT current
+        ANA     C               ; A = prev AND (NOT current)
+        ; A now has 1 bits for each new button press
+        ORA     A
+        JZ      NOGRAV          ; No new presses
+        STA     JYEDGE          ; Save edge mask (survives calls)
+        ; Check D3 (bit 3) = move left
+        ANI     08H
+        JZ      JYNOL
+        CALL    ERSGST
+        CALL    MOVELFT
+        CZ      LKRST
+        CALL    DRWGST
+JYNOL:  LDA     JYEDGE
+        ; Check D1 (bit 1) = move right
+        ANI     02H
+        JZ      JYNOR
+        CALL    ERSGST
+        CALL    MOVERGT
+        CZ      LKRST
+        CALL    DRWGST
+JYNOR:  LDA     JYEDGE
+        ; Check D0 (bit 0) = rotate CCW
+        ANI     01H
+        JZ      JYNOCC
+        CALL    ERSGST
+        CALL    ROTCCW
+        CZ      LKRST
+        CALL    DRWGST
+JYNOCC: LDA     JYEDGE
+        ; Check D2 (bit 2) = rotate CW
+        ANI     04H
+        JZ      NOGRAV
+        CALL    ERSGST
+        CALL    ROTATE
+        CZ      LKRST
+        CALL    DRWGST
+        JMP     NOGRAV
 
 DOLEFT:
         CALL    ERSGST
@@ -1155,7 +1232,7 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.13'
+        DB      '     Cromemco Dazzler v1.14'
         DB      13,10,13,10,13,10,'$'
 
 MSGCTRL:
@@ -1194,9 +1271,9 @@ MSGNL:
 MSGHLP:
         DB      13,10
         IF      SPDMODE EQ 1
-        DB      'Usage: TETRIS [/4] [/GC] [/GD] [/HD] [/SD]'
+        DB      'Usage: TETRIS [/4] [/GC] [/GD] [/HD] [/JY] [/SD]'
         ELSE
-        DB      'Usage: TETRIS [/GC] [/GD] [/HD] [/SD]'
+        DB      'Usage: TETRIS [/GC] [/GD] [/HD] [/JY] [/SD]'
         ENDIF
         DB      13,10,10
         IF      SPDMODE EQ 1
@@ -1205,6 +1282,7 @@ MSGHLP:
         DB      '  /GC  Enable color ghosts (default = Grey)',13,10
         DB      '  /GD  Disable ghost pieces',13,10
         DB      '  /HD  Disable hold feature',13,10
+        DB      '  /JY  Enable D+7A digital joystick',13,10
         DB      '  /SD  Disable real-time score display',13,10
         DB      '$'
 
@@ -1234,6 +1312,7 @@ SPNCOL: DB      3               ; I: col 3 (cols 3-6)
         DB      3               ; J: col 3 (cols 3-5)
         DB      3               ; L: col 3 (cols 3-5)
 
+JYEDGE: DB      0               ; Joystick edge mask temp
 MSCSCO: DB      'Score: $'
 MSCLIN: DB      '  Lines: $'
 MSCLVL: DB      '  Level: $'
