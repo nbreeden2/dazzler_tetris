@@ -63,7 +63,7 @@
         EXTRN   GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         EXTRN   RNGSEED,SPDTBL,DRPFLG
         EXTRN   PCHOLD,HOLDOK
-        EXTRN   GSTROW,GSTMOD,HLDDIS,SCRDIS,JOYENA,JOYPREV
+        EXTRN   GSTROW,GSTMOD,HLDDIS,SCRDIS,JOYENA,JOYPREV,MUSENA
 
 ;--------------------------------------------------------------
 ; CP/M equates
@@ -81,6 +81,7 @@ DIRCON  EQU     06H             ; Direct console I/O
 SPDMODE EQU     1
 LCKMAX  EQU     128             ; Lock delay counter reset
 D7ADIG  EQU     18H             ; D+7A I/O digital port
+MUSPORT EQU     0B0H            ; Music card I/O port
 
 ; CP/M command tail (used by SPDMODE 1)
 CMDLEN  EQU     0080H           ; Command tail length
@@ -195,6 +196,8 @@ PFN4:   MOV     A,M             ; Reload char
         JZ      PFS             ; /S switch
         CPI     'j'
         JZ      PFJ             ; /J switch
+        CPI     'm'
+        JZ      PFM             ; /M switch
         JMP     PFNXT           ; Unknown: skip
         ; --- /G: ghost switches ---
 PFG:    INX     H               ; Char after 'G'
@@ -252,6 +255,17 @@ PFJ:    INX     H               ; Char after 'J'
         MVI     A,1
         STA     JOYENA          ; Enable joystick
         JMP     PFNXT
+        ; --- /M: music switches ---
+PFM:    INX     H               ; Char after 'M'
+        DCR     B
+        JZ      PFNXT           ; /M alone at end: ignore
+        MOV     A,M
+        ORI     20H
+        CPI     'u'
+        JNZ     PFNXT           ; Not /MU: ignore
+        MVI     A,1
+        STA     MUSENA          ; Enable music card
+        JMP     PFNXT
         ; --- /? = display help and exit ---
 PFHELP:
         LXI     D,MSGHLP
@@ -259,6 +273,22 @@ PFHELP:
         CALL    BDOS
         JMP     WBOOT
 PARSED:
+
+        ; --- Music card init (if /MU specified) ---
+        LDA     MUSENA
+        ORA     A
+        JZ      MUSDONE
+        IN      MUSPORT
+        CPI     0FFH
+        JNZ     MUSPRB          ; Card present
+        LXI     D,MSGNOMU
+        MVI     C,PSTRING
+        CALL    BDOS
+        JMP     WBOOT
+MUSPRB:
+        MVI     A,10H           ; Song 0 + play bit
+        OUT     MUSPORT
+MUSDONE:
 
         ; Initialize Dazzler hardware
         LXI     H,DZLBASE
@@ -884,6 +914,9 @@ NOLN2:
 ; Spawn at row=0, rotation=0. Test collision for game over.
 ;--------------------------------------------------------------
 SPAWN:
+        ; Advance music if previous song finished
+        CALL    MUSCHK
+
         ; Current piece = next
         LDA     PCNEXT
         STA     PCTYPE
@@ -932,6 +965,24 @@ SPAWN:
 SPNDIE:
         MVI     A,1
         STA     GAMOVR          ; Set game over flag
+        RET
+
+;--------------------------------------------------------------
+; MUSCHK - Restart song 0 if music has stopped
+;
+; If /MU enabled and music card reports idle (bit 4 clear),
+; restarts song 0.
+; Uses:   A
+;--------------------------------------------------------------
+MUSCHK:
+        LDA     MUSENA
+        ORA     A
+        RZ                      ; /MU not enabled
+        IN      MUSPORT
+        ANI     10H             ; Test play bit
+        RNZ                     ; Still playing
+        MVI     A,10H           ; Song 0 + play bit
+        OUT     MUSPORT
         RET
 
 ;--------------------------------------------------------------
@@ -1094,6 +1145,12 @@ GAMEOVER:
 ; QUIT - Clean exit
 ;--------------------------------------------------------------
 QUIT:
+        LDA     MUSENA
+        ORA     A
+        JZ      QUIT0
+        XRA     A
+        OUT     MUSPORT         ; Stop music
+QUIT0:
         CALL    DZLCLOSE
         JMP     WBOOT
 
@@ -1268,12 +1325,15 @@ MSGAGN:
 MSGNL:
         DB      13,10,'$'
 
+MSGNOMU:
+        DB      13,10,'No music card at port B0h.',13,10,'$'
+
 MSGHLP:
         DB      13,10
         IF      SPDMODE EQ 1
-        DB      'Usage: TETRIS [/4] [/GC] [/GD] [/HD] [/JY] [/SD]'
+        DB      'Usage: TETRIS [/4] [/GC] [/GD] [/HD] [/JY] [/MU] [/SD]'
         ELSE
-        DB      'Usage: TETRIS [/GC] [/GD] [/HD] [/JY] [/SD]'
+        DB      'Usage: TETRIS [/GC] [/GD] [/HD] [/JY] [/MU] [/SD]'
         ENDIF
         DB      13,10,10
         IF      SPDMODE EQ 1
@@ -1283,6 +1343,7 @@ MSGHLP:
         DB      '  /GD  Disable ghost pieces',13,10
         DB      '  /HD  Disable hold feature',13,10
         DB      '  /JY  Enable D+7A digital joystick',13,10
+        DB      '  /MU  Enable music card at port B0h',13,10
         DB      '  /SD  Disable real-time score display',13,10
         DB      '$'
 

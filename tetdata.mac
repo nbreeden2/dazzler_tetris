@@ -17,7 +17,7 @@
         PUBLIC  SPDTBL,SCRTBL,PCLTBL
         PUBLIC  BOARD
         PUBLIC  PCTYPE,PCROT,PCCOL,PCROW,PCCLR,PCNEXT,PCHOLD,HOLDOK
-        PUBLIC  GCTBL,GSTROW,GSTMOD,HLDDIS,SCRDIS,JOYENA,JOYPREV
+        PUBLIC  GCTBL,GSTROW,GSTMOD,HLDDIS,SCRDIS,JOYENA,JOYPREV,MUSENA
         PUBLIC  LGOBMP,LGOCLR
         PUBLIC  SCORE,LINES,LEVEL
         PUBLIC  GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
@@ -380,6 +380,7 @@ HLDDIS: DB      0       ; Hold disable (0=enabled, 1=disabled)
 SCRDIS: DB      0       ; Score display disable (0=enabled, 1=disabled)
 JOYENA: DB      0       ; Joystick enable (0=off, 1=D+7A digital)
 JOYPREV:DB      0FFH    ; Previous joystick state (all released)
+MUSENA: DB      0       ; Music enable (0=off, 1=card at port B0h)
 
 ;--------------------------------------------------------------
 ; Logo bitmap data - 6 characters, 5x7 pixels each

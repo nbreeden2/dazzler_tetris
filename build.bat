@@ -1,6 +1,6 @@
 @echo off
 REM ---------------------------------------------------------------
-REM BUILD.BAT - Build SEDIT for CPM
+REM BUILD.BAT - Build TETRIS for CPM
 REM
 REM Requires: cpmulator.exe, M80.COM, L80.COM in current directory
 REM           Python (for CPMFMT.PY)
@@ -77,6 +77,8 @@ del *.REL 2>nul
 
 REM Copy to SDH folders and build SDH disk image
 cls
+copy /Y tetris.COM D:\CPMEMU\disks\RTRTET.unpacked\0
+copy /Y tetris.MAC D:\CPMEMU\disks\RTRTET.unpacked\0
 copy /Y tetris.COM D:\SDH\DISKS\RTRTET.unpacked\0
 copy /Y *.mac      D:\SDH\DISKS\RTRTET.unpacked\0
 pushd D:\SDH\DISKS

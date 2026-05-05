@@ -22,7 +22,7 @@ Press any key to start playing.
 ## Command-Line Options
 
 ```
-TETRIS [/4] [/GC] [/GD] [/HD] [/SD] [/VS]
+TETRIS [/4] [/GC] [/GD] [/HD] [/JY] [/MU] [/SD]
 ```
 
 | Switch | Description |
@@ -31,8 +31,9 @@ TETRIS [/4] [/GC] [/GD] [/HD] [/SD] [/VS]
 | /GC | Show ghost pieces in per-piece colors (default is grey) |
 | /GD | Disable ghost pieces entirely |
 | /HD | Disable the hold feature |
+| /JY | Enable Cromemco D+7A digital joystick input |
+| /MU | Enable music playback via music card at port B0h |
 | /SD | Disable the real-time score display on the terminal |
-| /VS | Enable vertical sync (synchronize drawing to Dazzler refresh) |
 | /? | Display help and exit |
 
 Switches may be combined in any order:
