@@ -6,7 +6,7 @@ REM Requires: cpmulator.exe, M80.COM, L80.COM in current directory
 REM           Python (for CPMFMT.PY)
 REM ---------------------------------------------------------------
 
-echo === SEDIT Build ===
+echo === TETRIS v2.0 Build ===
 
 REM Format source files for CP/M
 echo Formatting source files...
@@ -75,17 +75,19 @@ pause
 REM Clean up .REL files
 del *.REL 2>nul
 
-REM Copy to SDH folders and build SDH disk image
+REM Copy to distribution folders
 cls
-copy /Y tetris.COM D:\CPMEMU\disks\RTRTET.unpacked\0
-copy /Y tetris.MAC D:\CPMEMU\disks\RTRTET.unpacked\0
-copy /Y tetris.COM D:\SDH\DISKS\RTRTET.unpacked\0
-copy /Y *.mac      D:\SDH\DISKS\RTRTET.unpacked\0
-pushd D:\SDH\DISKS
-if exist RTRTET.dsk del RTRTET.dsk
-python ..\pack.py RTRTET.dsk
-if not exist RTRTET.dsk goto fail
-copy RTRTET.dsk D:\VisualStudio\Tetris
+copy /Y TETRIS.COM D:\CPMEMU\disks\RTRTET.unpacked\0
+copy /Y TETRIS.MAC D:\CPMEMU\disks\RTRTET.unpacked\0
+copy /Y README.TXT D:\CPMEMU\disks\RTRTET.unpacked\0
+REM
+copy /Y TETRIS.COM D:\CPMEMU\disks\TETRIS.unpacked\0
+copy /Y README.TXT D:\CPMEMU\disks\TETRIS.unpacked\0
+pushd D:\CPMEMU\disks
+if exist TETRIS.dsk del TETRIS.dsk
+fdc-pack TETRIS.dsk
+if not exist TETRIS.dsk goto fail
+copy TETRIS.dsk D:\VisualStudio\Tetris
 popd
 
 echo === Build successful: RTRTET.COM ===

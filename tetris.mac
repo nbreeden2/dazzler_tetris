@@ -3,7 +3,7 @@
 ; TETRIS.MAC - Main program, game loop, input, console I/O
 ;
 ; Tetris for the Cromemco Dazzler 64x64 display.
-; Version: 1.14
+; Version: 2.0
 ; Target: CP/M 2.2, Intel 8080, Microsoft M80/L80
 ;
 ; Build:
@@ -26,6 +26,12 @@
 ;   S/K = Soft drop    E/O = Hold
 ;   SPACE = Hard drop  ESC = Quit
 ;--------------------------------------------------------------
+
+;--------------------------------------------------------------
+; Optional feature gates (must match tetdata.mac)
+;--------------------------------------------------------------
+INCJOY  EQU     0               ; /JY D+7A joystick support
+INCMUS  EQU     0               ; /MU music card support
 
 ;--------------------------------------------------------------
 ; Public declarations
@@ -63,7 +69,13 @@
         EXTRN   GRAVCNT,GRAVMAX,GRAVPRE,LNCOUNT,GAMOVR
         EXTRN   RNGSEED,SPDTBL,DRPFLG
         EXTRN   PCHOLD,HOLDOK
-        EXTRN   GSTROW,GSTMOD,HLDDIS,SCRDIS,JOYENA,JOYPREV,MUSENA
+        EXTRN   GSTROW,GSTMOD,HLDDIS,SCRDIS
+        IF      INCJOY EQ 1
+        EXTRN   JOYENA,JOYPREV
+        ENDIF
+        IF      INCMUS EQ 1
+        EXTRN   MUSENA
+        ENDIF
 
 ;--------------------------------------------------------------
 ; CP/M equates
@@ -75,7 +87,7 @@ PSTRING EQU     09H             ; Print string
 DIRCON  EQU     06H             ; Direct console I/O
 
 ; CPU speed mode (choose one):
-;   1 = Command-line switch (/2 or /4)
+;   1 = Command-line switch (default 4MHz, /2 for 2MHz)
 ;   2 = Hardcoded 2MHz
 ;   3 = Hardcoded 4MHz
 SPDMODE EQU     1
@@ -154,7 +166,7 @@ GOTSEED:
 
         ; Parse command line switches
         IF      SPDMODE EQ 1
-        MVI     A,5             ; Default: 2MHz prescaler
+        MVI     A,10            ; Default: 4MHz prescaler
         STA     PRESCL
         ENDIF
         LDA     CMDLEN
@@ -180,24 +192,28 @@ PFSLSH:
         JZ      PARSED          ; '/' at end
         MOV     A,M
         IF      SPDMODE EQ 1
-        CPI     '4'
-        JNZ     PFN4
-        MVI     A,10            ; 4MHz prescaler
+        CPI     '2'
+        JNZ     PFN2
+        MVI     A,5             ; 2MHz prescaler
         STA     PRESCL
         JMP     PFNXT
-PFN4:   MOV     A,M             ; Reload char
+PFN2:   MOV     A,M             ; Reload char
         ENDIF
         ORI     20H             ; Force lowercase
         CPI     'g'
         JZ      PFG             ; /G switch
         CPI     'h'
         JZ      PFH             ; /H switch
-        CPI     's'
-        JZ      PFS             ; /S switch
+        CPI     'e'
+        JZ      PFE             ; /E switch
+        IF      INCJOY EQ 1
         CPI     'j'
         JZ      PFJ             ; /J switch
+        ENDIF
+        IF      INCMUS EQ 1
         CPI     'm'
         JZ      PFM             ; /M switch
+        ENDIF
         JMP     PFNXT           ; Unknown: skip
         ; --- /G: ghost switches ---
 PFG:    INX     H               ; Char after 'G'
@@ -233,17 +249,18 @@ PFH:    INX     H               ; Char after 'H'
         MVI     A,1
         STA     HLDDIS          ; Disable hold
         JMP     PFNXT
-        ; --- /S: score switches ---
-PFS:    INX     H               ; Char after 'S'
+        ; --- /E: score-display enable ---
+PFE:    INX     H               ; Char after 'E'
         DCR     B
-        JZ      PFNXT           ; /S alone at end: ignore
+        JZ      PFNXT           ; /E alone at end: ignore
         MOV     A,M
         ORI     20H
         CPI     'd'
-        JNZ     PFNXT           ; Not /SD: ignore
-        MVI     A,1
-        STA     SCRDIS          ; Disable score display
+        JNZ     PFNXT           ; Not /ED: ignore
+        XRA     A
+        STA     SCRDIS          ; Enable score display
         JMP     PFNXT
+        IF      INCJOY EQ 1
         ; --- /J: joystick switches ---
 PFJ:    INX     H               ; Char after 'J'
         DCR     B
@@ -255,6 +272,8 @@ PFJ:    INX     H               ; Char after 'J'
         MVI     A,1
         STA     JOYENA          ; Enable joystick
         JMP     PFNXT
+        ENDIF
+        IF      INCMUS EQ 1
         ; --- /M: music switches ---
 PFM:    INX     H               ; Char after 'M'
         DCR     B
@@ -266,6 +285,7 @@ PFM:    INX     H               ; Char after 'M'
         MVI     A,1
         STA     MUSENA          ; Enable music card
         JMP     PFNXT
+        ENDIF
         ; --- /? = display help and exit ---
 PFHELP:
         LXI     D,MSGHLP
@@ -274,6 +294,7 @@ PFHELP:
         JMP     WBOOT
 PARSED:
 
+        IF      INCMUS EQ 1
         ; --- Music card init (if /MU specified) ---
         LDA     MUSENA
         ORA     A
@@ -289,6 +310,7 @@ MUSPRB:
         MVI     A,10H           ; Song 0 + play bit
         OUT     MUSPORT
 MUSDONE:
+        ENDIF
 
         ; Initialize Dazzler hardware
         LXI     H,DZLBASE
@@ -330,7 +352,9 @@ CLRBRD:
         STA     BAGIDX          ; Force bag refill
         MVI     A,0FFH
         STA     PCHOLD          ; No held piece
+        IF      INCJOY EQ 1
         STA     JOYPREV         ; All buttons released
+        ENDIF
         MVI     A,1
         STA     HOLDOK          ; Hold allowed
         LXI     H,0
@@ -467,6 +491,7 @@ GAMELP:
 ;   D2 = Rotate CW     D3 = Move left
 ;--------------------------------------------------------------
 JOYCHK:
+        IF      INCJOY EQ 1
         LDA     JOYENA
         ORA     A
         JZ      NOGRAV          ; Joystick not enabled
@@ -517,6 +542,9 @@ JYNOCC: LDA     JYEDGE
         CZ      LKRST
         CALL    DRWGST
         JMP     NOGRAV
+        ELSE
+        JMP     NOGRAV          ; Joystick stripped: fall straight through
+        ENDIF
 
 DOLEFT:
         CALL    ERSGST
@@ -914,8 +942,10 @@ NOLN2:
 ; Spawn at row=0, rotation=0. Test collision for game over.
 ;--------------------------------------------------------------
 SPAWN:
-        ; Advance music if previous song finished
+        IF      INCMUS EQ 1
+        ; Restart song 0 if music has stopped
         CALL    MUSCHK
+        ENDIF
 
         ; Current piece = next
         LDA     PCNEXT
@@ -967,6 +997,7 @@ SPNDIE:
         STA     GAMOVR          ; Set game over flag
         RET
 
+        IF      INCMUS EQ 1
 ;--------------------------------------------------------------
 ; MUSCHK - Restart song 0 if music has stopped
 ;
@@ -984,6 +1015,7 @@ MUSCHK:
         MVI     A,10H           ; Song 0 + play bit
         OUT     MUSPORT
         RET
+        ENDIF
 
 ;--------------------------------------------------------------
 ; RANDOM - Get next piece from 7-bag randomizer
@@ -1145,12 +1177,14 @@ GAMEOVER:
 ; QUIT - Clean exit
 ;--------------------------------------------------------------
 QUIT:
+        IF      INCMUS EQ 1
         LDA     MUSENA
         ORA     A
         JZ      QUIT0
         XRA     A
         OUT     MUSPORT         ; Stop music
 QUIT0:
+        ENDIF
         CALL    DZLCLOSE
         JMP     WBOOT
 
@@ -1289,7 +1323,7 @@ MSGSTRT:
         DB      '    T    R   R  IIIII  SSSSS',13,10
         DB      13,10
         DB      '                        '
-        DB      '     Cromemco Dazzler v1.14'
+        DB      '      Cromemco Dazzler v2.0'
         DB      13,10,13,10,13,10,'$'
 
 MSGCTRL:
@@ -1325,30 +1359,43 @@ MSGAGN:
 MSGNL:
         DB      13,10,'$'
 
+        IF      INCMUS EQ 1
 MSGNOMU:
         DB      13,10,'No music card at port B0h.',13,10,'$'
+        ENDIF
 
 MSGHLP:
         DB      13,10
         IF      SPDMODE EQ 1
-        DB      'Usage: TETRIS [/4] [/GC] [/GD] [/HD] [/JY] [/MU] [/SD]'
+        DB      'Usage: TETRIS [/2] [/GC] [/GD] [/HD]'
         ELSE
-        DB      'Usage: TETRIS [/GC] [/GD] [/HD] [/JY] [/MU] [/SD]'
+        DB      'Usage: TETRIS [/GC] [/GD] [/HD]'
         ENDIF
+        IF      INCJOY EQ 1
+        DB      ' [/JY]'
+        ENDIF
+        IF      INCMUS EQ 1
+        DB      ' [/MU]'
+        ENDIF
+        DB      ' [/ED]'
         DB      13,10,10
         IF      SPDMODE EQ 1
-        DB      '  /4   4MHz CPU mode (default = 2MHz CPU)',13,10
+        DB      '  /2   2MHz CPU mode (default = 4MHz CPU)',13,10
         ENDIF
         DB      '  /GC  Enable color ghosts (default = Grey)',13,10
         DB      '  /GD  Disable ghost pieces',13,10
         DB      '  /HD  Disable hold feature',13,10
+        IF      INCJOY EQ 1
         DB      '  /JY  Enable D+7A digital joystick',13,10
+        ENDIF
+        IF      INCMUS EQ 1
         DB      '  /MU  Enable music card at port B0h',13,10
-        DB      '  /SD  Disable real-time score display',13,10
+        ENDIF
+        DB      '  /ED  Enable real-time score display',13,10
         DB      '$'
 
         IF      SPDMODE EQ 1
-PRESCL: DB      5               ; Base prescaler (set by parser)
+PRESCL: DB      10              ; Base prescaler (set by parser)
         ENDIF
 
 ; 7-bag randomizer state

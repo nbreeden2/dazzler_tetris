@@ -22,25 +22,23 @@ Press any key to start playing.
 ## Command-Line Options
 
 ```
-TETRIS [/4] [/GC] [/GD] [/HD] [/JY] [/MU] [/SD]
+TETRIS [/2] [/GC] [/GD] [/HD] [/ED]
 ```
 
 | Switch | Description |
 |--------|-------------|
-| /4 | 4MHz CPU mode (default assumes 2MHz) |
+| /2 | 2MHz CPU mode (default is 4MHz) |
 | /GC | Show ghost pieces in per-piece colors (default is grey) |
 | /GD | Disable ghost pieces entirely |
 | /HD | Disable the hold feature |
-| /JY | Enable Cromemco D+7A digital joystick input |
-| /MU | Enable music playback via music card at port B0h |
-| /SD | Disable the real-time score display on the terminal |
+| /ED | Enable the real-time score display on the terminal (default is off) |
 | /? | Display help and exit |
 
 Switches may be combined in any order:
 
 ```
-A>TETRIS /4 /GC
-A>TETRIS /HD /SD
+A>TETRIS /2 /GC
+A>TETRIS /HD /ED
 A>TETRIS /?
 ```
 
@@ -174,9 +172,9 @@ combo resets when a piece locks without clearing any lines.
 
 ### Score Display
 
-During play, the current score, total lines, and level are shown on
-the terminal. Use the /SD switch to suppress this if the terminal
-output causes performance issues.
+The real-time score, total lines, and level are not shown on the
+terminal by default. Use the /ED switch to enable the live display
+during play.
 
 The maximum displayable score is 65,535.
 
