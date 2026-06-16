@@ -17,6 +17,8 @@ REM Format source files for CP/M (CRLF + Ctrl-Z)
 echo [build] formatting source files
 python CPMFMT.PY d64x64.MAC d64x64a.MAC d64x64b.MAC t64x64.MAC tetdata.MAC tetdraw.MAC tetmove.MAC tetris.MAC
 if errorlevel 1 goto fail
+python CPMFMT.PY README.TXT LICENSE.TXT
+if errorlevel 1 goto fail
 
 REM Stage source onto the work disk (drive B:)
 echo [build] staging source onto B:
@@ -43,11 +45,13 @@ copy /Y "%WORK%\TETRIS.COM" "%HERE%TETRIS.COM" >NUL || goto out_fail
 
 REM Copy to distribution folders
 echo [build] copying to distribution folders
-copy /Y "%HERE%TETRIS.COM" D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
-copy /Y "%HERE%TETRIS.MAC" D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
-copy /Y "%HERE%README.TXT" D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
-copy /Y "%HERE%TETRIS.COM" D:\CPMEMU\disks\TETRIS.unpacked\0 >NUL
-copy /Y "%HERE%README.TXT" D:\CPMEMU\disks\TETRIS.unpacked\0 >NUL
+copy /Y "%HERE%TETRIS.COM"  D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
+copy /Y "%HERE%TETRIS.MAC"  D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
+copy /Y "%HERE%README.TXT"  D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
+copy /Y "%HERE%LICENSE.TXT" D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
+copy /Y "%HERE%TETRIS.COM"  D:\CPMEMU\disks\TETRIS.unpacked\0 >NUL
+copy /Y "%HERE%README.TXT"  D:\CPMEMU\disks\TETRIS.unpacked\0 >NUL
+copy /Y "%HERE%LICENSE.TXT" D:\CPMEMU\disks\TETRIS.unpacked\0 >NUL
 
 REM Pack distribution disk image
 echo [build] packing TETRIS.dsk
