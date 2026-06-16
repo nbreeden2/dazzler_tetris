@@ -1,100 +1,81 @@
 @echo off
+setlocal
 REM ---------------------------------------------------------------
-REM BUILD.BAT - Build TETRIS for CPM
-REM
-REM Requires: cpmulator.exe, M80.COM, L80.COM in current directory
-REM           Python (for CPMFMT.PY)
+REM BUILD.BAT - Headless build of TETRIS v2.0 via CPMEMUTK.
+REM Stages source onto tk\src.unpacked\0\ (drive B:), runs the build
+REM script in emulated CP/M, branches on the exit code, then bundles
+REM the .COM into the distribution disk image.
+REM Requires: tk\cpmemutk.exe (local-use-only) + Python (CPMFMT.PY).
 REM ---------------------------------------------------------------
+
+set "HERE=%~dp0"
+set "WORK=%HERE%tk\src.unpacked\0"
 
 echo === TETRIS v2.0 Build ===
 
-REM Format source files for CP/M
-echo Formatting source files...
-python CPMFMT.PY d64x64.MAC d64x64a.MAC d64x64b.MAC t64x64.MAC 
-if errorlevel 1 goto fail
-python CPMFMT.PY tetdata.MAC tetdraw.MAC tetmove.MAC tetris.MAC
+REM Format source files for CP/M (CRLF + Ctrl-Z)
+echo [build] formatting source files
+python CPMFMT.PY d64x64.MAC d64x64a.MAC d64x64b.MAC t64x64.MAC tetdata.MAC tetdraw.MAC tetmove.MAC tetris.MAC
 if errorlevel 1 goto fail
 
-REM Assemble each module
-echo Assembling d64x64...
-cpmulator M80.COM =d64x64
-if errorlevel 1 goto fail
-pause
+REM Stage source onto the work disk (drive B:)
+echo [build] staging source onto B:
+copy /Y "%HERE%tetris.MAC"  "%WORK%\" >NUL || goto stage_fail
+copy /Y "%HERE%tetmove.MAC" "%WORK%\" >NUL || goto stage_fail
+copy /Y "%HERE%tetdraw.MAC" "%WORK%\" >NUL || goto stage_fail
+copy /Y "%HERE%tetdata.MAC" "%WORK%\" >NUL || goto stage_fail
+copy /Y "%HERE%d64x64.MAC"  "%WORK%\" >NUL || goto stage_fail
+copy /Y "%HERE%d64x64a.MAC" "%WORK%\" >NUL || goto stage_fail
+copy /Y "%HERE%d64x64b.MAC" "%WORK%\" >NUL || goto stage_fail
 
-REM Assemble each module
-echo Assembling d64x64a...
-cpmulator M80.COM =d64x64a
-if errorlevel 1 goto fail
-pause
+REM Assemble + link inside emulated CP/M
+echo [build] running cpmemutk
+"%HERE%tk\cpmemutk.exe" --script "%HERE%tk\build.tks" --log "%HERE%tk\build.log" --report "%HERE%tk\build.xml"
+set "RC=%ERRORLEVEL%"
+if not "%RC%"=="0" (
+    echo === BUILD FAILED ^(exit %RC%^) - see tk\build.log ===
+    exit /b %RC%
+)
 
-REM Assemble each module
-echo Assembling d64x64b...
-cpmulator M80.COM =d64x64b
-if errorlevel 1 goto fail
-pause
-
-REM Assemble each module
-echo Assembling tetdata...
-cpmulator M80.COM =tetdata
-if errorlevel 1 goto fail
-pause
-
-REM Assemble each module
-echo Assembling tetdraw...
-cpmulator M80.COM =tetdraw
-if errorlevel 1 goto fail
-pause
-
-REM Assemble each module
-echo Assembling tetmove...
-cpmulator M80.COM =tetmove
-if errorlevel 1 goto fail
-pause
-
-REM Assemble each module
-echo Assembling tetris...
-cpmulator M80.COM =tetris
-if errorlevel 1 goto fail
-pause
-
-
-cls
-dir *.mac
-dir *.rel
-pause
-
-REM Link all modules
-echo Linking...
-
-cpmulator L80.COM TETRIS,TETMOVE,TETDRAW,TETDATA,D64X64,D64X64A,D64X64B,TETRIS/N/E
-if errorlevel 1 goto fail
-
-dir tetris.com
-pause
-
-REM Clean up .REL files
-del *.REL 2>nul
+REM Extract the .COM back to the project root
+echo [build] extracting TETRIS.COM
+copy /Y "%WORK%\TETRIS.COM" "%HERE%TETRIS.COM" >NUL || goto out_fail
 
 REM Copy to distribution folders
-cls
-copy /Y TETRIS.COM D:\CPMEMU\disks\RTRTET.unpacked\0
-copy /Y TETRIS.MAC D:\CPMEMU\disks\RTRTET.unpacked\0
-copy /Y README.TXT D:\CPMEMU\disks\RTRTET.unpacked\0
-REM
-copy /Y TETRIS.COM D:\CPMEMU\disks\TETRIS.unpacked\0
-copy /Y README.TXT D:\CPMEMU\disks\TETRIS.unpacked\0
+echo [build] copying to distribution folders
+copy /Y "%HERE%TETRIS.COM" D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
+copy /Y "%HERE%TETRIS.MAC" D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
+copy /Y "%HERE%README.TXT" D:\CPMEMU\disks\RTRTET.unpacked\0 >NUL
+copy /Y "%HERE%TETRIS.COM" D:\CPMEMU\disks\TETRIS.unpacked\0 >NUL
+copy /Y "%HERE%README.TXT" D:\CPMEMU\disks\TETRIS.unpacked\0 >NUL
+
+REM Pack distribution disk image
+echo [build] packing TETRIS.dsk
 pushd D:\CPMEMU\disks
 if exist TETRIS.dsk del TETRIS.dsk
 fdc-pack TETRIS.dsk
-if not exist TETRIS.dsk goto fail
-copy TETRIS.dsk D:\VisualStudio\Tetris
+if not exist TETRIS.dsk (
+    popd
+    goto pack_fail
+)
+copy /Y TETRIS.dsk "%HERE%" >NUL
 popd
 
-echo === Build successful: RTRTET.COM ===
-goto end
+echo === Build successful: TETRIS.COM + TETRIS.dsk ===
+exit /b 0
 
 :fail
-echo === BUILD FAILED ===
+echo === BUILD FAILED: CPMFMT step ===
 exit /b 1
 
-:end
+:stage_fail
+echo === BUILD FAILED: could not stage source onto tk\src.unpacked\0\ ===
+exit /b 1
+
+:out_fail
+echo === BUILD FAILED: could not copy TETRIS.COM out of work disk ===
+exit /b 1
+
+:pack_fail
+echo === BUILD FAILED: fdc-pack did not produce TETRIS.dsk ===
+exit /b 1

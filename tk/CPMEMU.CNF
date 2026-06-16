@@ -1,0 +1,32 @@
+# CPMEMU.CNF - CPMEMUTK turnkey config for TETRIS build.
+# Boots CP/M from local .unpacked disks via the in-process FIF core.
+# ASCII only. LOCAL USE ONLY (links the local-use-only fifc disk core).
+
+VERBOSE = 1
+
+# IMSAI boot ROM (MEMON/80 at F800). AUTOSTART releases the CPU into it at
+# power-on; the driver then injects "BO" to boot from FIF drive A.
+ROM = .\memon80.hex
+AUTOSTART = F800
+
+# In-process disk core: serve the drives in this diskmap.json directly.
+FIF = on
+FIF_LOCAL = .\diskmap.json
+
+# Minimal card set - the build only needs CPU + disks + console.
+DCDD = off
+MMU  = off
+RTC  = off
+APU  = off
+DAZZLER = off
+SOUND   = off
+
+CPU_SPEED = 4
+
+# Console on the cpmemu window (stdin/stdout).
+[SIO2]
+CHA = cmd
+CHB = cmd
+[SIO2B]
+CHA = cmd
+[]

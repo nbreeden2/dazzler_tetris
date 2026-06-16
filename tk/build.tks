@@ -1,0 +1,81 @@
+# build.tks - CPMEMUTK build for TETRIS v2.0 (Cromemco Dazzler).
+# Bare lines are CP/M commands; .verbs control the runner.
+# Drive B: = src.unpacked (source + M80/L80 staged by build.bat).
+# Exit codes: 0 OK, 1 tool error, 66 missing file.
+
+.PRINT === TETRIS v2.0 assemble + link ===
+B:
+
+# Pre-flight: all 7 source modules must be staged on B: before launch.
+.EXIST B:TETRIS.MAC  : TETRIS.MAC not staged on B:
+.EXIST B:TETMOVE.MAC : TETMOVE.MAC not staged on B:
+.EXIST B:TETDRAW.MAC : TETDRAW.MAC not staged on B:
+.EXIST B:TETDATA.MAC : TETDATA.MAC not staged on B:
+.EXIST B:D64X64.MAC  : D64X64.MAC not staged on B:
+.EXIST B:D64X64A.MAC : D64X64A.MAC not staged on B:
+.EXIST B:D64X64B.MAC : D64X64B.MAC not staged on B:
+
+# Clean build: drop stale outputs so a failure can't ship an old artifact.
+ERA *.REL
+ERA TETRIS.COM
+
+# Assemble each module. M80 strands at '*' on a missing/bad file (caught by
+# .CHECKNOT "*"); a clean run prints "No Fatal error(s) [,n warnings]".
+.PRINT --- Assembling TETRIS ---
+M80 =TETRIS
+.CHECKNOT "*"
+.CHECK    "No Fatal error"
+.WARN     "warning"
+.EXIST    B:TETRIS.REL : M80 produced no TETRIS.REL
+
+.PRINT --- Assembling TETMOVE ---
+M80 =TETMOVE
+.CHECKNOT "*"
+.CHECK    "No Fatal error"
+.WARN     "warning"
+.EXIST    B:TETMOVE.REL : M80 produced no TETMOVE.REL
+
+.PRINT --- Assembling TETDRAW ---
+M80 =TETDRAW
+.CHECKNOT "*"
+.CHECK    "No Fatal error"
+.WARN     "warning"
+.EXIST    B:TETDRAW.REL : M80 produced no TETDRAW.REL
+
+.PRINT --- Assembling TETDATA ---
+M80 =TETDATA
+.CHECKNOT "*"
+.CHECK    "No Fatal error"
+.WARN     "warning"
+.EXIST    B:TETDATA.REL : M80 produced no TETDATA.REL
+
+.PRINT --- Assembling D64X64 ---
+M80 =D64X64
+.CHECKNOT "*"
+.CHECK    "No Fatal error"
+.WARN     "warning"
+.EXIST    B:D64X64.REL : M80 produced no D64X64.REL
+
+.PRINT --- Assembling D64X64A ---
+M80 =D64X64A
+.CHECKNOT "*"
+.CHECK    "No Fatal error"
+.WARN     "warning"
+.EXIST    B:D64X64A.REL : M80 produced no D64X64A.REL
+
+.PRINT --- Assembling D64X64B ---
+M80 =D64X64B
+.CHECKNOT "*"
+.CHECK    "No Fatal error"
+.WARN     "warning"
+.EXIST    B:D64X64B.REL : M80 produced no D64X64B.REL
+
+# Link. L80 flags errors with '?' and also strands at '*'.
+.PRINT --- Linking TETRIS.COM ---
+L80 TETRIS,TETMOVE,TETDRAW,TETDATA,D64X64,D64X64A,D64X64B,TETRIS/N/E
+.CHECKNOT "*"
+.CHECKNOT "?"
+.EXIST    B:TETRIS.COM : L80 produced no TETRIS.COM
+
+.PRINT === BUILD OK ===
+.EXIT 0
