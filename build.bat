@@ -31,6 +31,13 @@ copy /Y "%HERE%d64x64a.MAC" "%WORK%\" >NUL || goto stage_fail
 copy /Y "%HERE%d64x64b.MAC" "%WORK%\" >NUL || goto stage_fail
 
 REM Assemble + link inside emulated CP/M
+REM always run the current build: copy it fresh from the CPMEMU repo
+set "TKEXE=%HERE%..\CPMEMU\cpmemu\build-tk\cpmemutk.exe"
+if not exist "%TKEXE%" (
+    echo cpmemutk.exe not found - build it with CPMEMU\cpmemu\build-tk.bat, then re-run.
+    exit /b 2
+)
+copy /Y "%TKEXE%" "%HERE%tk\" >NUL
 echo [build] running cpmemutk
 "%HERE%tk\cpmemutk.exe" --script "%HERE%tk\build.tks" --log "%HERE%tk\build.log" --report "%HERE%tk\build.xml"
 set "RC=%ERRORLEVEL%"

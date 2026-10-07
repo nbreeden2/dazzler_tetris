@@ -10,7 +10,7 @@ ROM = .\memon80.hex
 AUTOSTART = F800
 
 # In-process disk core: serve the drives in this diskmap.json directly.
-FIF = on
+FIF = internal
 FIF_LOCAL = .\diskmap.json
 
 # Minimal card set - the build only needs CPU + disks + console.
